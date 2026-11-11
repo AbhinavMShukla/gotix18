@@ -216,3 +216,33 @@ header #txt-app-subtitle{display:none!important;}
 .gotix-chat-quick{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
 .gotix-chat-quick button{border:1px solid #bd9858;color:#e7d0a3;border-radius:8px;padding:5px 8px;font-size:11px}
 #inline-chat-bar{margin-top:5px!important}
+
+/* v6: Home settings entry */
+.gotix-home-settings{width:38px;height:38px;flex:0 0 38px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,184,103,.6);border-radius:12px;background:rgba(11,23,51,.7);color:#eac47a;cursor:pointer}
+.gotix-home-settings:active{transform:scale(.96)}
+
+/* v9: avoid continuous GPU compositing and glow while the board is in use. */
+#board-box.royal-game-board::before{animation:none!important;box-shadow:none!important}
+#board-box.royal-game-board{box-shadow:0 0 0 2px #1a2c47!important}
+#board-box.royal-game-board canvas{touch-action:none}
+
+/* v15: Turn notice floats over board; never changes document height. */
+#board-box{position:relative!important;isolation:isolate;}
+#board-box #gotix-turn-alert.gotix-turn-banner{
+ position:absolute!important;left:50%;bottom:12%;top:auto;z-index:25;
+ width:max-content;max-width:88%;min-height:0!important;max-height:none!important;
+ padding:10px 19px;border:1.5px solid #f4d28c;border-radius:999px;
+ background:rgba(9,25,52,.96);color:#fff5d8!important;
+ box-shadow:0 8px 30px rgba(0,0,0,.55),0 0 18px rgba(243,184,79,.3);
+ font-size:16px!important;font-weight:900;letter-spacing:.035em;line-height:1.3;
+ text-shadow:0 1px 3px #000;opacity:0;visibility:hidden;
+ transform:translate(-50%,30px);pointer-events:none;white-space:normal;text-align:center;
+}
+#board-box #gotix-turn-alert.gotix-alert-pop{visibility:visible;animation:gotixTurnOverlay 2s ease-in-out both!important;}
+@keyframes gotixTurnOverlay{
+ 0%{opacity:0;transform:translate(-50%,34px) scale(.94)}
+ 19%{opacity:1;transform:translate(-50%,0) scale(1.02)}
+ 66%{opacity:1;transform:translate(-50%,-9px) scale(1)}
+ 100%{opacity:0;transform:translate(-50%,-34px) scale(.98);visibility:hidden}
+}
+@media(prefers-reduced-motion:reduce){#board-box #gotix-turn-alert.gotix-alert-pop{animation:gotixTurnOverlayReduced 2s linear both!important;}@keyframes gotixTurnOverlayReduced{0%,100%{opacity:0}15%,75%{opacity:1}}}

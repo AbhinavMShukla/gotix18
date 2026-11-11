@@ -5,6 +5,7 @@ let CANVAS = null;
             lang: 'hi',
             mode: 'pvp',
             aiDiff: 'medium',
+            aiSpeed: [300, 700, 1200].includes(Number(localStorage.getItem('gotix_ai_speed'))) ? Number(localStorage.getItem('gotix_ai_speed')) : 700,
             boardTheme: 'royal',
             pieceTheme: 'red_black',
             pieceStyle: 'vertical',
@@ -40,7 +41,7 @@ let CANVAS = null;
             turnInterval: null,
             syncInterval: null,
             chatMessages: [],
-            lastSeenChatIndex: 0
+            lastSeenChatIndex: 0, lastChatSentAt: 0, resultReason: null
         };
 
         let gameState = {
@@ -150,6 +151,8 @@ let CANVAS = null;
         const audio = new SoundFX();
 
         let activeAnimation = null;
+        let lastVisibleMove = null;
+        let lastMoveClearTimer = null;
         let particles = [];
         let touchRipples = [];
 
@@ -346,6 +349,7 @@ let CANVAS = null;
         let canvasWidth = 0;
         let canvasHeight = 0;
         let computedNodes = [];
+        let cachedBoardEdges = [];
 
         // 1. AUTO-OPTIMIZE CANVAS SIZE FOR DEVICE SCREEN & VIEWPORT
         function resizeCanvas() {
@@ -354,7 +358,8 @@ let CANVAS = null;
             if (!container) return;
             
             const rect = container.getBoundingClientRect();
-            const dpr = Math.max(1, window.devicePixelRatio || 1);
+            // Limit expensive high-density canvas work on mobile WebView.
+            const dpr = 1; // Fast gameplay: avoid 4x pixels on high-density mobile displays.
             
             canvasWidth = rect.width;
             canvasHeight = rect.height;
@@ -377,10 +382,37 @@ let CANVAS = null;
                 radius: baseRadius
             }));
 
+            // Cache invariant board connections once per resize, not once per draw.
+            cachedBoardEdges = [];
+            const edgeKeys = new Set();
+            for (let u = 0; u < ADJACENCY_LIST.length; u++) {
+                for (const v of ADJACENCY_LIST[u]) {
+                    const key = u < v ? `${u}-${v}` : `${v}-${u}`;
+                    if (!edgeKeys.has(key)) {
+                        edgeKeys.add(key);
+                        cachedBoardEdges.push([computedNodes[u], computedNodes[v]]);
+                    }
+                }
+            }
             render();
         }
 
+        // One pending AI action at a time. Human moves stay instantaneous.
+        let aiActionTimer = null;
+        function scheduleAiAction(action) {
+            if (aiActionTimer !== null) clearTimeout(aiActionTimer);
+            aiActionTimer = setTimeout(() => {
+                aiActionTimer = null;
+                if (config.mode !== 'ai' || gameState.gameOver || gameState.turn !== 'P2') return;
+                action();
+            }, config.aiSpeed);
+        }
+
         function initGame(randomTurn = true) {
+            if (aiActionTimer !== null) { clearTimeout(aiActionTimer); aiActionTimer = null; }
+            activeAnimation = null;
+            lastVisibleMove = null;
+            if (lastMoveClearTimer) clearTimeout(lastMoveClearTimer);
             gameState.board = new Array(37).fill(null);
             
             for (let i = 0; i < 18; i++) gameState.board[i] = 'P2';
@@ -408,7 +440,7 @@ let CANVAS = null;
             }
 
             if (config.mode === 'ai' && gameState.turn === 'P2') {
-                setTimeout(makeAiMove, 600);
+                scheduleAiAction(makeAiMove);
             }
         }
 
@@ -473,9 +505,15 @@ let CANVAS = null;
                     onlineState.moveTimer = Math.max(0, Math.ceil((onlineState.turnDeadline - Date.now()) / 1000));
                     if (onlineState.moveTimer === 0) void resolveOnlineTimeout();
                 }
-                updateUI();
+                const status = document.getElementById('status-message');
+                if (status) {
+                    const lang = I18N[config.lang];
+                    const mins = String(Math.floor(onlineState.moveTimer / 60)).padStart(2, '0');
+                    const secs = String(onlineState.moveTimer % 60).padStart(2, '0');
+                    status.textContent = (isMyTurn() ? lang.yourTurnStatus : lang.opponentTurnStatus) + ` ⏳ (${mins}:${secs})`;
+                }
                 updateTurnWarnings();
-            }, 250);
+            }, 1000);
         }
         async function resolveOnlineTimeout() {
             if (onlineState.resolvingTimeout || !onlineState.roomRef || !onlineState.turnDeadline || gameState.gameOver) return;
@@ -591,7 +629,7 @@ let CANVAS = null;
             if (!CTX || !computedNodes || computedNodes.length === 0) return;
             CTX.clearRect(0, 0, canvasWidth, canvasHeight);
 
-            const isFlipped = (config.mode === 'online' && onlineState.role === 'P2');
+            const isFlipped = config.mode === 'online' && onlineState.role === 'P2'; // v16: each online player sees own pieces at bottom; fixed throughout match
             
             CTX.save();
             if (isFlipped) {
@@ -610,43 +648,22 @@ let CANVAS = null;
                 CTX.fillRect(0,0,canvasWidth,canvasHeight);
             }
 
-            // Render Player Labels
-            const topY = computedNodes[1].y - computedNodes[1].radius * 2.2;
-            const botY = computedNodes[35].y + computedNodes[35].radius * 2.2;
-            
-            CTX.font = 'bold 12px Inter, sans-serif';
-            CTX.textAlign = 'center';
-            CTX.textBaseline = 'middle';
-
-            CTX.fillStyle = gameState.turn === 'P2' ? '#0284c7' : '#94a3b8';
-            CTX.fillText(config.mode === 'ai' ? 'PLAYER 2 (AI)' : 'PLAYER 2', canvasWidth * 0.5, topY);
-
-            CTX.fillStyle = gameState.turn === 'P1' ? '#dc2626' : '#94a3b8';
-            CTX.fillText(config.mode === 'ai' ? 'PLAYER 1 (YOU)' : 'PLAYER 1', canvasWidth * 0.5, botY);
+            // v16: no PLAYER 1 / PLAYER 2 text drawn on the playing board.
 
             // Board Lines
             CTX.lineWidth = Math.max(1.5, canvasWidth * 0.004);
             CTX.strokeStyle = theme.line;
             if (config.boardTheme === 'royal') {
                 CTX.shadowColor = 'rgba(244,194,100,.72)';
-                CTX.shadowBlur = 7;
+                CTX.shadowBlur = 0;
             }
             CTX.lineCap = 'round';
 
-            const drawnEdges = new Set();
-            for (let u = 0; u < ADJACENCY_LIST.length; u++) {
-                for (let v of ADJACENCY_LIST[u]) {
-                    const key = u < v ? `${u}-${v}` : `${v}-${u}`;
-                    if (!drawnEdges.has(key)) {
-                        drawnEdges.add(key);
-                        const p1 = computedNodes[u];
-                        const p2 = computedNodes[v];
-                        CTX.beginPath();
-                        CTX.moveTo(p1.x, p1.y);
-                        CTX.lineTo(p2.x, p2.y);
-                        CTX.stroke();
-                    }
-                }
+            for (const [p1, p2] of cachedBoardEdges) {
+                CTX.beginPath();
+                CTX.moveTo(p1.x, p1.y);
+                CTX.lineTo(p2.x, p2.y);
+                CTX.stroke();
             }
 
             CTX.shadowBlur = 0;
@@ -679,7 +696,7 @@ let CANVAS = null;
                 if (occupant && config.boardTheme === 'royal') {
                     CTX.save();
                     CTX.shadowColor = occupant === 'P1' ? '#ef4444' : '#38bdf8';
-                    CTX.shadowBlur = 8;
+                    CTX.shadowBlur = 0;
                     CTX.strokeStyle = occupant === 'P1' ? '#ff8b83' : '#7dd3fc';
                     CTX.lineWidth = 1.2;
                     CTX.stroke();
@@ -697,6 +714,29 @@ let CANVAS = null;
                 }
             });
 
+            // Brief visual trail for the most recent move. This does not change game rules.
+            if (lastVisibleMove && performance.now() < lastVisibleMove.until) {
+                const trail = lastVisibleMove;
+                const start = computedNodes[trail.from];
+                const finish = computedNodes[trail.to];
+                if (start && finish) {
+                    CTX.save();
+                    CTX.strokeStyle = trail.capture ? '#ffba62' : '#f5d77e';
+                    CTX.lineWidth = Math.max(3, finish.radius * .22);
+                    CTX.setLineDash([7, 5]);
+                    CTX.beginPath();
+                    CTX.moveTo(start.x, start.y);
+                    CTX.lineTo(finish.x, finish.y);
+                    CTX.stroke();
+                    CTX.setLineDash([]);
+                    CTX.beginPath();
+                    CTX.arc(finish.x, finish.y, finish.radius * 1.28, 0, Math.PI * 2);
+                    CTX.lineWidth = 3;
+                    CTX.stroke();
+                    CTX.restore();
+                }
+            }
+
             // Moves highlights
             gameState.legalMoves.forEach(m => {
                 const node = computedNodes[m.targetNode];
@@ -705,7 +745,7 @@ let CANVAS = null;
                 CTX.fillStyle = m.capturedNode !== null ? 'rgba(244, 75, 75, .42)' : 'rgba(46, 230, 153, .32)';
                 if (config.boardTheme === 'royal') {
                     CTX.shadowColor = m.capturedNode !== null ? '#fb7185' : '#34d399';
-                    CTX.shadowBlur = 13;
+                    CTX.shadowBlur = 0;
                 }
                 CTX.fill();
                 CTX.lineWidth = 2.5;
@@ -726,7 +766,7 @@ let CANVAS = null;
                     const pulse = .5 + .5 * Math.sin(performance.now()/230);
                     CTX.lineWidth = 2 + pulse*1.6;
                     CTX.shadowColor = '#f8cf7e';
-                    CTX.shadowBlur = 9 + pulse*10;
+                    CTX.shadowBlur = 0;
                 }
                 CTX.stroke();
                 CTX.shadowBlur = 0;
@@ -740,13 +780,16 @@ let CANVAS = null;
                 if (config.pieceStyle === 'vertical') {
                     drawUprightVerticalPiece(computedNodes[idx].x, computedNodes[idx].y, computedNodes[idx].radius, piece, colors, isFlipped);
                 } else {
-                    draw3DPiece(computedNodes[idx].x, computedNodes[idx].y, computedNodes[idx].radius, piece, colors);
+                    drawUprightSpherePiece(computedNodes[idx].x, computedNodes[idx].y, computedNodes[idx].radius, piece, colors, isFlipped);
                 }
             });
 
+            let completedMoveCallback = null;
             if (activeAnimation) {
-                activeAnimation.progress += 0.09;
-                if (activeAnimation.progress >= 1) activeAnimation.progress = 1;
+                // Time-based movement: consistent speed even when the device drops frames.
+                const elapsed = performance.now() - activeAnimation.startedAt;
+                const t = Math.min(1, elapsed / activeAnimation.durationMs);
+                activeAnimation.progress = t * t * (3 - 2 * t);
                 
                 const curX = activeAnimation.startPos.x + (activeAnimation.endPos.x - activeAnimation.startPos.x) * activeAnimation.progress;
                 const curY = activeAnimation.startPos.y + (activeAnimation.endPos.y - activeAnimation.startPos.y) * activeAnimation.progress;
@@ -754,17 +797,18 @@ let CANVAS = null;
                 if (config.pieceStyle === 'vertical') {
                     drawUprightVerticalPiece(curX, curY, computedNodes[activeAnimation.fromNode].radius, activeAnimation.piece, colors, isFlipped);
                 } else {
-                    draw3DPiece(curX, curY, computedNodes[activeAnimation.fromNode].radius, activeAnimation.piece, colors);
+                    drawUprightSpherePiece(curX, curY, computedNodes[activeAnimation.fromNode].radius, activeAnimation.piece, colors, isFlipped);
                 }
 
                 if (activeAnimation.progress >= 1) {
                     const callback = activeAnimation.onComplete;
                     activeAnimation = null;
-                    if (callback) callback();
+                    completedMoveCallback = callback;
                 }
             }
 
-            particles.forEach((p, idx) => {
+            for (let idx = particles.length - 1; idx >= 0; idx--) {
+                const p = particles[idx];
                 p.x += p.vx;
                 p.y += p.vy;
                 p.vy += 0.25;
@@ -779,24 +823,39 @@ let CANVAS = null;
                     CTX.fill();
                     CTX.globalAlpha = 1.0;
                 }
-            });
+            }
 
             CTX.restore();
 
-            if (activeAnimation || particles.length > 0 || touchRipples.length > 0 || (config.boardTheme === 'royal' && gameState.selectedNode !== null && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+            // Never call finalizeMove/render recursively while the P2 board transform is active.
+            if (completedMoveCallback) {
+                completedMoveCallback();
+                return;
+            }
+            if (activeAnimation || particles.length > 0 || touchRipples.length > 0 || false) {
                 requestAnimationFrame(render);
             }
         }
 
-        function drawUprightVerticalPiece(x, y, r, pieceType, colors, isFlipped) {
+        // v17: draw every piece in screen coordinates, outside the rotated board transform.
+        // This prevents upside-down artwork during opponent moves / snapshot redraws.
+        // The board geometry itself still rotates once for the joining player.
+        function drawScreenUprightPiece(x, y, r, pieceType, colors, isFlipped, vertical) {
             CTX.save();
             if (isFlipped) {
-                CTX.translate(x, y);
-                CTX.rotate(Math.PI);
-                CTX.translate(-x, -y);
+                CTX.setTransform(1, 0, 0, 1, 0, 0);
+                x = canvasWidth - x;
+                y = canvasHeight - y;
             }
-            draw3DVerticalPiece(x, y, r, pieceType, colors);
+            if (vertical) draw3DVerticalPiece(x, y, r, pieceType, colors);
+            else draw3DPiece(x, y, r, pieceType, colors);
             CTX.restore();
+        }
+        function drawUprightSpherePiece(x, y, r, pieceType, colors, isFlipped) {
+            drawScreenUprightPiece(x, y, r, pieceType, colors, isFlipped, false);
+        }
+        function drawUprightVerticalPiece(x, y, r, pieceType, colors, isFlipped) {
+            drawScreenUprightPiece(x, y, r, pieceType, colors, isFlipped, true);
         }
 
         function draw3DPiece(x, y, r, pieceType, colors) {
@@ -877,32 +936,40 @@ let CANVAS = null;
         }
 
         function executeMove(fromNode, move) {
+            // Both human and computer pieces slide visibly over 620ms; rules and turn handling remain unchanged.
+            // Logic and Firebase sync still run through the original finalizeMove path.
+            if (gameState.gameOver || activeAnimation) return;
             if (config.mode === 'ai' && gameState.turn === 'P1' && !gameState.multiCaptureActive) {
                 gameState.history.push(JSON.parse(JSON.stringify({
-                    board: gameState.board,
-                    turn: gameState.turn,
-                    p1Count: gameState.p1Count,
-                    p2Count: gameState.p2Count,
-                    moveLogs: gameState.moveLogs,
-                    elapsedSeconds: gameState.elapsedSeconds
+                    board: gameState.board, turn: gameState.turn,
+                    p1Count: gameState.p1Count, p2Count: gameState.p2Count,
+                    moveLogs: gameState.moveLogs, elapsedSeconds: gameState.elapsedSeconds
                 })));
             }
-            const piece = gameState.board[fromNode];
-
+            const from = computedNodes[fromNode];
+            const to = computedNodes[move.targetNode];
+            if (!from || !to) { finalizeMove(fromNode, move); return; }
             activeAnimation = {
-                piece: piece,
-                fromNode: fromNode,
-                toNode: move.targetNode,
-                startPos: { x: computedNodes[fromNode].x, y: computedNodes[fromNode].y },
-                endPos: { x: computedNodes[move.targetNode].x, y: computedNodes[move.targetNode].y },
-                progress: 0,
+                fromNode, piece: gameState.turn, startedAt: performance.now(),
+                durationMs: 620, progress: 0,
+                startPos: { x: from.x, y: from.y },
+                endPos: { x: to.x, y: to.y },
                 onComplete: () => finalizeMove(fromNode, move)
             };
-
             render();
         }
 
         function finalizeMove(fromNode, move) {
+            lastVisibleMove = {
+                from: fromNode, to: move.targetNode,
+                capture: move.capturedNode !== null,
+                until: performance.now() + 2200
+            };
+            if (lastMoveClearTimer) clearTimeout(lastMoveClearTimer);
+            lastMoveClearTimer = setTimeout(() => {
+                lastVisibleMove = null;
+                render();
+            }, 2220);
             const playerTag = gameState.turn === 'P1' ? 'P1' : 'P2';
             const actionSymbol = move.capturedNode !== null ? '✕' : '➔';
             const logEntry = `${playerTag}: ${fromNode} ${actionSymbol} ${move.targetNode}`;
@@ -942,14 +1009,14 @@ let CANVAS = null;
                     render();
 
                     if (config.mode === 'ai' && gameState.turn === 'P2') {
-                        setTimeout(() => {
+                        scheduleAiAction(() => {
                             if (!gameState.multiCaptureActive || gameState.gameOver) return;
                             const options = gameState.legalMoves;
                             if (options.length) {
                                 const next = options[Math.floor(Math.random() * options.length)];
                                 executeMove(gameState.selectedNode, next);
                             }
-                        }, 350);
+                        });
                     }
                     return;
                 }
@@ -965,7 +1032,10 @@ let CANVAS = null;
 
             gameState.turn = gameState.turn === 'P1' ? 'P2' : 'P1';
 
-            if (checkWin()) return;
+            if (checkWin()) {
+                if (config.mode === 'online') void publishOnlineState();
+                return;
+            }
 
             updateUI();
             render();
@@ -979,7 +1049,7 @@ let CANVAS = null;
             }
 
             if (config.mode === 'ai' && gameState.turn === 'P2') {
-                setTimeout(makeAiMove, 500);
+                scheduleAiAction(makeAiMove);
             }
         }
 
@@ -1012,6 +1082,11 @@ let CANVAS = null;
         function triggerWin(winner, type) {
             if (gameState.gameOver && document.getElementById('modal-win').classList.contains('hidden') === false) return;
             gameState.gameOver = true;
+            if (config.mode === 'online') {
+                onlineState.resultWinner = winner;
+                onlineState.resultReason = type;
+                onlineState.resultRecorded = true;
+            }
             stopTimer();
 
             userStats.played++;
@@ -1075,6 +1150,17 @@ let CANVAS = null;
                 winCardBox.className = "bg-white border-2 border-red-500 rounded-3xl max-w-sm w-full p-6 text-center text-slate-800 shadow-2xl relative overflow-hidden animate-fade-in";
             }
 
+            const resultDetails = document.getElementById('gotix-result-details');
+            if (resultDetails) {
+                const reasons = {timeout:'तीसरी बार समय समाप्त / Third timeout', forfeit:'खिलाड़ी ने मैच छोड़ा / Player exited',
+                    pieces:'सभी गोटियाँ Capture / All pieces captured', moves:'कोई वैध चाल नहीं / No legal moves'};
+                const myRole = config.mode === 'online' ? onlineState.role : 'P1';
+                const myCaptures = myRole === 'P1' ? 18-gameState.p2Count : 18-gameState.p1Count;
+                const enemyCaptures = myRole === 'P1' ? 18-gameState.p1Count : 18-gameState.p2Count;
+                const myTimeouts = onlineState.timeoutCounts?.[myRole] || 0;
+                resultDetails.textContent = `कारण: ${reasons[type] || 'मैच समाप्त / Match finished'} | Your captures: ${myCaptures} | Opponent captures: ${enemyCaptures}` +
+                    (config.mode === 'online' ? ` | Your timeouts: ${myTimeouts}/3` : '');
+            }
             modal.classList.remove('hidden');
             updateUI();
             render();
@@ -1238,12 +1324,13 @@ let CANVAS = null;
             let x = clientX - rect.left;
             let y = clientY - rect.top;
 
+            // v16: inverse of the P2 canvas transform, so taps select the correct node.
             if (config.mode === 'online' && onlineState.role === 'P2') {
                 x = canvasWidth - x;
                 y = canvasHeight - y;
             }
 
-            touchRipples.push({ x: x, y: y, radius: 2, alpha: 0.8 });
+            // No ripple animation on taps: prioritize immediate touch response.
 
             let touchedIdx = null;
             let minDist = Infinity;
@@ -1332,9 +1419,9 @@ let CANVAS = null;
             }
 
             // Place actual player cards on opposite sides of the canvas.
-            // Online role is fixed per device; pass-and-play follows the current turn.
+            // Online role follows the local account; Pass & Play keeps P1 below and P2 above for the entire match.
             const myRole = config.mode === 'online' ? (onlineState.role || 'P1') :
-                config.mode === 'ai' ? 'P1' : gameState.turn;
+                'P1';
             const opponentCard = myRole === 'P1' ? cardP2 : cardP1;
             const selfCard = myRole === 'P1' ? cardP1 : cardP2;
             const opponentSlot = document.getElementById('gotix-opponent-slot');
@@ -1369,6 +1456,10 @@ let CANVAS = null;
             } else {
                 btnFinish.classList.add('hidden');
             }
+
+            // Restart is local to Vs Computer; never reset an online match accidentally.
+            const btnRestart = document.getElementById('btn-reset');
+            btnRestart.classList.toggle('hidden', config.mode !== 'ai');
 
             const btnUndo = document.getElementById('btn-undo');
             btnUndo.disabled = (config.mode !== 'ai' || gameState.history.length === 0 || gameState.turn === 'P2');
@@ -1434,7 +1525,12 @@ let CANVAS = null;
         });
 
         document.getElementById('btn-reset').addEventListener('click', () => {
+            if (config.mode !== 'ai') return;
             audio.playSelect();
+            const promptText = config.lang === 'hi'
+                ? 'Computer के साथ नया गेम शुरू करें? वर्तमान गेम की प्रगति मिट जाएगी।'
+                : 'Restart the game against Computer? Current game progress will be lost.';
+            if (!window.confirm(promptText)) return;
             initGame(true);
         });
 
@@ -1540,21 +1636,56 @@ let CANVAS = null;
             });
         });
 
+        const CHAT_COOLDOWN_MS = 2500;
+        const CHAT_MAX_CHARS = 160;
+        let chatSending = false;
+        function chatFeedback(message) {
+            const input = document.getElementById('input-online-chat');
+            input.placeholder = message;
+            input.setAttribute('aria-label', message);
+        }
+
         // Inline Fast Online Chat Event
         async function sendOnlineChatMessage() {
             const input = document.getElementById('input-online-chat');
-            const text = input.value.trim();
-            if (!text || !onlineState.roomRef || !window.gutikaFB) return;
-            input.value = '';
-            audio.playSelect();
-
-            const msgObj = { sender: config.username, text, time: Date.now() };
-            const newMsgs = [...(onlineState.chatMessages || []), msgObj].slice(-40);
+            const message = input.value.trim();
+            if (!message || !onlineState.roomRef || !window.gutikaFB || chatSending) return;
+            if (message.length > CHAT_MAX_CHARS) {
+                chatFeedback(`Maximum ${CHAT_MAX_CHARS} characters`);
+                return;
+            }
+            const remaining = CHAT_COOLDOWN_MS - (Date.now() - (onlineState.lastChatSentAt || 0));
+            if (remaining > 0) {
+                chatFeedback(`Wait ${Math.ceil(remaining / 1000)}s before sending`);
+                return;
+            }
+            chatSending = true;
+            const sendButton = document.getElementById('btn-send-inline-chat');
+            sendButton.disabled = true;
             try {
-                await window.gutikaFB.setDoc(onlineState.roomRef, { chatMessages: newMsgs }, { merge: true });
-                onlineState.chatMessages = newMsgs;
-                refreshGotixChat();
-            } catch(e) { console.error(e); }
+                const f = window.gutikaFB;
+                const uid = window.gutikaUser?.uid;
+                await f.runTransaction(f.db, async tx => {
+                    const snap = await tx.get(onlineState.roomRef);
+                    if (!snap.exists()) throw new Error('Room unavailable');
+                    const data = snap.data();
+                    if (data.status !== 'playing' || !['P1','P2'].some(role => data.players?.[role]?.uid === uid))
+                        throw new Error('Chat is available during an active match only');
+                    const lastSent = Number(data.chatLastSent?.[uid] || 0);
+                    if (Date.now() - lastSent < CHAT_COOLDOWN_MS) throw new Error('Please wait before sending another message');
+                    const now = Date.now();
+                    const messages = [...(Array.isArray(data.chatMessages) ? data.chatMessages : []),
+                        {sender: config.username, uid, text: message, time: now}].slice(-40);
+                    tx.update(onlineState.roomRef, {chatMessages: messages, [`chatLastSent.${uid}`]: now});
+                });
+                onlineState.lastChatSentAt = Date.now();
+                input.value = '';
+                chatFeedback('Message...');
+                audio.playSelect();
+            } catch(e) {
+                console.error('Chat send failed',e);
+                chatFeedback(e.message || 'Chat failed, retry');
+            } finally { chatSending = false; sendButton.disabled = false; }
         }
 
         document.getElementById('btn-send-inline-chat').addEventListener('click', sendOnlineChatMessage);
@@ -1710,7 +1841,7 @@ let CANVAS = null;
                 setGoogleStatus(`Login failed: ${error.message || error.code || 'Unknown error'}`);
             } finally { btn.disabled = false; }
         });
-        window.addEventListener('gutika-auth-changed', updateGoogleIdentity);
+        window.addEventListener('gutika-auth-changed', () => { updateGoogleIdentity(); updateProfileModalUI(); });
 
         // ---------- ONLINE MULTIPLAYER ----------
         const FB_CONFIG_KEY = 'gutika_firebase_config_v1';
@@ -1725,19 +1856,37 @@ let CANVAS = null;
         function onlineMessage(msg) { const el = document.getElementById('online-status'); if (el) el.textContent = msg; }
         function currentRoomRef(code) { const f = window.gutikaFB; return f.doc(f.db, ...FB_ROOT, code); }
         
+        // Firebase ES modules load asynchronously. Wait for them rather than failing on a fast tap.
+        async function waitForFirebaseSDK(timeoutMs=12000) {
+          const start = Date.now();
+          while (!window.gutikaFirebaseReady || !window.connectGutikaFirebase) {
+            if (window.gutikaFirebaseLoadError) throw new Error('Firebase SDK failed to load. Check internet access.');
+            if (Date.now()-start > timeoutMs) throw new Error('Firebase SDK not loaded. Use http://localhost (not file://) and check internet access.');
+            await new Promise(resolve => setTimeout(resolve, 120));
+          }
+        }
+        function onlineErrorText(e) {
+          const code = e?.code || '';
+          if (code.includes('permission-denied')) return 'Firestore permission denied. Check Firebase Firestore Rules and authenticated user.';
+          if (code.includes('unauthenticated')) return 'Firebase authentication required. Please sign in again.';
+          if (code.includes('unavailable')) return 'Firebase unavailable. Check internet connection and retry.';
+          if (code.includes('failed-precondition')) return 'Firestore setup/index required. Check Firebase console.';
+          return e?.message || code || 'Unknown Firebase error';
+        }
         async function ensureOnlineConnected() {
-          if (window.gutikaFB && window.gutikaUser) return true;
-          let raw = localStorage.getItem(FB_CONFIG_KEY);
-          let cfg = raw ? JSON.parse(raw) : DEFAULT_FB_CONFIG;
-          if (!window.gutikaFirebaseReady) { onlineMessage('Firebase SDK loading...'); return false; }
-          try { 
-              await window.connectGutikaFirebase(cfg); 
-              onlineState.connected = true; 
-              return true; 
-          } catch(e) { 
-              console.error(e); 
-              onlineMessage('Firebase connection error'); 
-              return false; 
+          if (window.gutikaFB && window.gutikaUser?.uid) return true;
+          try {
+              let raw = localStorage.getItem(FB_CONFIG_KEY);
+              let cfg = raw ? JSON.parse(raw) : DEFAULT_FB_CONFIG;
+              await waitForFirebaseSDK();
+              await window.connectGutikaFirebase(cfg);
+              if (!window.gutikaUser?.uid) throw new Error('No authenticated Firebase user.');
+              onlineState.connected = true;
+              return true;
+          } catch(e) {
+              console.error('Firebase connection failed:',e);
+              onlineMessage('Firebase: ' + onlineErrorText(e));
+              return false;
           }
         }
 
@@ -1753,7 +1902,7 @@ let CANVAS = null;
                 elapsedSeconds: gameState.elapsedSeconds,
                 turnDeadline: onlineState.turnDeadline,
                 timeoutCounts: onlineState.timeoutCounts,
-                chatMessages: onlineState.chatMessages || [],
+                ...(gameState.gameOver && onlineState.resultWinner ? {winner: onlineState.resultWinner, finishReason: onlineState.resultReason || 'pieces'} : {}),
                 updatedAt: Date.now() 
             }; 
         }
@@ -1765,7 +1914,8 @@ let CANVAS = null;
               await f.runTransaction(f.db, async tx => {
                   const snap = await tx.get(onlineState.roomRef);
                   if (!snap.exists() || snap.data().status !== 'playing' || snap.data().players?.[onlineState.role]?.uid !== window.gutikaUser?.uid) return;
-                  tx.update(onlineState.roomRef, roomPayload('playing'));
+                  const finished = gameState.gameOver && !!onlineState.resultWinner;
+                  tx.update(onlineState.roomRef, roomPayload(finished ? 'finished' : 'playing'));
               }); 
           } catch(e) { console.error(e); }
         }
@@ -1828,17 +1978,68 @@ let CANVAS = null;
           }
         }
 
+        const ACTIVE_ROOM_KEY = 'gotix18_active_room_v5';
+        let reconnecting = false;
+        function rememberActiveRoom() {
+            if (onlineState.roomCode && onlineState.role && window.gutikaUser?.uid) {
+                localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({code:onlineState.roomCode, role:onlineState.role, uid:window.gutikaUser.uid}));
+            }
+        }
+        function forgetActiveRoom() { localStorage.removeItem(ACTIVE_ROOM_KEY); }
+        async function reconnectActiveRoom() {
+            if (reconnecting || onlineState.roomRef) return;
+            let saved;
+            try { saved = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null'); } catch (_) { forgetActiveRoom(); return; }
+            if (!saved || !/^[A-Z0-9]{6}$/.test(saved.code) || !['P1','P2'].includes(saved.role)) return;
+            reconnecting = true;
+            try {
+                if (!await ensureOnlineConnected()) return;
+                if (saved.uid !== window.gutikaUser?.uid) { forgetActiveRoom(); return; }
+                const ref = currentRoomRef(saved.code);
+                const snap = await window.gutikaFB.getDoc(ref);
+                const data = snap.exists() ? snap.data() : null;
+                if (!data || !['waiting','playing'].includes(data.status) || data.players?.[saved.role]?.uid !== saved.uid) {
+                    forgetActiveRoom(); return;
+                }
+                onlineState.role = saved.role;
+                onlineState.roomCode = saved.code;
+                document.getElementById('display-room-code').textContent = saved.code;
+                document.getElementById('online-menu').classList.add('hidden');
+                document.getElementById('online-waiting').classList.remove('hidden');
+                watchRoom(ref);
+                if (data.status === 'waiting' && data.randomMatch && saved.role === 'P1') startRandomHeartbeat(ref);
+                onlineMessage('Reconnected to room ' + saved.code);
+            } catch (error) {
+                console.warn('Reconnect will retry', error);
+            } finally { reconnecting = false; }
+        }
+        window.addEventListener('online', () => { if (onlineState.roomRef) watchRoom(onlineState.roomRef); else void reconnectActiveRoom(); });
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && navigator.onLine !== false) {
+                if (onlineState.roomRef && !onlineState.unsubscribe) watchRoom(onlineState.roomRef);
+                else void reconnectActiveRoom();
+            }
+        });
+        window.addEventListener('gutika-auth-changed', () => { if (!onlineState.roomRef) void reconnectActiveRoom(); });
+        setTimeout(() => { void reconnectActiveRoom(); }, 1500);
+        setInterval(() => { if (!onlineState.roomRef && localStorage.getItem(ACTIVE_ROOM_KEY) && navigator.onLine !== false) void reconnectActiveRoom(); }, 15000);
+
         function watchRoom(ref) {
           if (onlineState.unsubscribe) onlineState.unsubscribe();
           onlineState.roomRef = ref;
+          rememberActiveRoom();
           onlineState.unsubscribe = window.gutikaFB.onSnapshot(ref, snap => {
-            if (!snap.exists()) { onlineMessage('Room closed.'); return; }
+            if (!snap.exists()) { forgetActiveRoom(); onlineMessage('Room closed.'); return; }
             const d = snap.data();
             if (d.status === 'finished' || d.status === 'cancelled') {
+              stopRandomHeartbeat();
+              forgetActiveRoom();
               stopTimer();
-              if (d.status === 'finished' && d.winner && onlineState.role && onlineState.roomCode && !onlineState.resultRecorded && d.exitedBy !== window.gutikaUser?.uid) {
+              if (d.status === 'finished' && d.winner && onlineState.role && onlineState.roomCode && !onlineState.resultRecorded) {
+                  // Synchronize final board/counts before showing the result on both devices.
+                  if (Array.isArray(d.board)) applyOnlineSnapshot(d);
                   onlineState.resultRecorded = true;
-                  triggerWin(d.winner, 'forfeit');
+                  triggerWin(d.winner, d.finishReason || 'forfeit');
               }
               if (d.status === 'cancelled') {
                   onlineMessage('Challenge cancelled.');
@@ -1850,6 +2051,7 @@ let CANVAS = null;
               return;
             }
             if (d.status === 'playing' && d.players && d.players.P1 && d.players.P2) {
+              stopRandomHeartbeat();
               config.mode = 'online'; 
               startMenuModal.classList.add('hidden');
               onlineModal.classList.add('hidden');
@@ -1866,25 +2068,51 @@ let CANVAS = null;
                 startMenuModal.classList.add('hidden');
                 onlineMessage(config.lang === 'hi' ? 'रूम तैयार है। दूसरे खिलाड़ी का इंतज़ार...' : 'Room ready. Waiting for opponent...'); 
             }
-          }, err => { console.error('Room listener failed:',err); onlineMessage('Room sync error: ' + (err.message || err.code)); });
+          }, err => { console.error('Room listener failed:',err); onlineMessage('Connection interrupted — reconnecting when online'); if (onlineState.unsubscribe) { onlineState.unsubscribe(); onlineState.unsubscribe = null; } });
         }
 
+        // Random matchmaking presence: a waiting host must renew its lease.
+        // Expired rooms are never matched, even if the browser was closed without exiting.
+        const RANDOM_LEASE_MS = 45000;
+        const RANDOM_HEARTBEAT_MS = 12000;
+        let randomHeartbeatHandle = null;
+        function stopRandomHeartbeat() {
+            if (randomHeartbeatHandle) clearInterval(randomHeartbeatHandle);
+            randomHeartbeatHandle = null;
+        }
+        function startRandomHeartbeat(ref) {
+            stopRandomHeartbeat();
+            const beat = async () => {
+                if (onlineState.roomRef?.path !== ref.path || onlineState.role !== 'P1' || !window.gutikaFB || document.hidden) return;
+                const f = window.gutikaFB;
+                try {
+                    await f.runTransaction(f.db, async tx => {
+                        const snap = await tx.get(ref);
+                        if (!snap.exists() || snap.data().status !== 'waiting' || !snap.data().randomMatch || snap.data().players?.P1?.uid !== window.gutikaUser?.uid) return;
+                        tx.update(ref, {hostHeartbeatAt: Date.now(), updatedAt: Date.now()});
+                    });
+                } catch (e) { console.warn('Random matchmaking heartbeat failed', e); }
+            };
+            randomHeartbeatHandle = setInterval(beat, RANDOM_HEARTBEAT_MS);
+            document.addEventListener('visibilitychange', () => { if (!document.hidden && onlineState.roomRef?.path === ref.path) void beat(); }, {once:true});
+        }
         function makeRoomCode() { return Math.random().toString(36).slice(2,8).toUpperCase().padEnd(6,'X'); }
 
         async function createOnlineRoom(random=false) {
-          if (!await ensureOnlineConnected()) return;
+          onlineState.roomCode = null;
+          if (!await ensureOnlineConnected()) return false;
           onlineMessage(config.lang === 'hi' ? 'खिलाड़ी खोज रहे हैं...' : 'Searching for opponent...');
           try {
             const f = window.gutikaFB; 
             let code = makeRoomCode(), ref = currentRoomRef(code);
             if (random) {
-              const q = f.query(f.collection(f.db, ...FB_ROOT), f.where('status', '==', 'waiting'), f.limit(15));
+              const q = f.query(f.collection(f.db, ...FB_ROOT), f.where('status', '==', 'waiting'), f.limit(30));
               const found = await f.getDocs(q);
               let joined = false;
               for (const candidate of found.docs) {
                 const candidateRef = candidate.ref;
                 const d = candidate.data();
-                if (d.players && d.players.P1 && d.players.P1.uid === window.gutikaUser.uid) {
+                if (!d.randomMatch || !Number.isFinite(d.hostHeartbeatAt) || Date.now() - d.hostHeartbeatAt > RANDOM_LEASE_MS || Date.now() < d.hostHeartbeatAt - 10000 || !window.gutikaUser?.uid || (d.players && d.players.P1 && d.players.P1.uid === window.gutikaUser.uid)) {
                     continue;
                 }
                 try { 
@@ -1892,7 +2120,9 @@ let CANVAS = null;
                         const snap = await tx.get(candidateRef); 
                         if (!snap.exists()) throw new Error('gone'); 
                         const curData = snap.data(); 
-                        if (curData.status !== 'waiting' || curData.players?.P2) throw new Error('taken'); 
+                        if (curData.status !== 'waiting' || curData.players?.P2) throw new Error('taken');
+                        if (!curData.randomMatch || !Number.isFinite(curData.hostHeartbeatAt) || Date.now() - curData.hostHeartbeatAt > RANDOM_LEASE_MS || Date.now() < curData.hostHeartbeatAt - 10000) throw new Error('host-inactive');
+                        if (!window.gutikaUser?.uid || curData.players?.P1?.uid === window.gutikaUser.uid) throw new Error('cannot-match-self'); 
                         tx.update(candidateRef, { 'players.P2': { uid: window.gutikaUser.uid, name: config.username }, status: 'playing', started: true, turnDeadline: Date.now()+TURN_LIMIT_MS, timeoutCounts:{P1:0,P2:0} }); 
                         code = candidate.id; 
                         ref = candidateRef; 
@@ -1902,9 +2132,15 @@ let CANVAS = null;
                     break; 
                 } catch(e) {}
               }
-              if (!joined) { 
-                  await createOnlineRoom(false); 
-                  return; 
+              if (!joined) {
+                  // Create a fresh RANDOM waiting room, not a friend-challenge room.
+                  initGame(false);
+                  onlineState.startedLocally = false;
+                  await f.setDoc(ref, {code, status:'waiting', started:false, randomMatch:true,
+                      hostHeartbeatAt:Date.now(), createdAt:Date.now(),
+                      players:{P1:{uid:window.gutikaUser.uid,name:config.username},P2:null},
+                      ...roomPayload('waiting')});
+                  onlineState.role = 'P1';
               }
             } else {
               initGame(false); 
@@ -1913,7 +2149,7 @@ let CANVAS = null;
                   code, 
                   status: 'waiting', 
                   started: false, 
-                  createdAt: Date.now(), 
+                  createdAt: Date.now(), randomMatch:false,
                   players: { P1: { uid: window.gutikaUser.uid, name: config.username }, P2: null }, 
                   ...roomPayload('waiting') 
               });
@@ -1925,9 +2161,15 @@ let CANVAS = null;
             document.getElementById('online-waiting').classList.remove('hidden');
             startMenuModal.classList.add('hidden');
             watchRoom(ref);
-          } catch(e) { 
-              console.error(e); 
-              onlineMessage('Error: ' + e.message); 
+            if (random && onlineState.role === 'P1') startRandomHeartbeat(ref);
+            return true;
+          } catch(e) {
+              console.error('Create room failed:', e);
+              const msg = onlineErrorText(e);
+              onlineMessage('Create Room failed: ' + msg);
+              const shareStatus = document.getElementById('challenge-share-status');
+              if (shareStatus) shareStatus.textContent = 'Create Room failed: ' + msg;
+              return false;
           }
         }
 
@@ -1960,6 +2202,7 @@ let CANVAS = null;
         }
 
         async function leaveOnlineRoom(forfeit=true) {
+            stopRandomHeartbeat();
             const ref = onlineState.roomRef;
             const role = onlineState.role;
             const f = window.gutikaFB;
@@ -1981,6 +2224,7 @@ let CANVAS = null;
                 } catch(e) { console.error('Could not finish online room', e); onlineMessage('Could not leave room: ' + e.message); return false; }
             }
             if (onlineState.unsubscribe) onlineState.unsubscribe();
+            forgetActiveRoom();
             stopTimer();
             onlineState = {
                 roomCode:null, role:null, unsubscribe:null, roomRef:null,
@@ -2018,8 +2262,11 @@ let CANVAS = null;
         async function shareChallenge() {
             const status = document.getElementById('challenge-share-status');
             status.textContent = 'Creating challenge...';
-            await createOnlineRoom(false);
-            if (!onlineState.roomCode) { status.textContent = 'Could not create challenge.'; return; }
+            const created = await createOnlineRoom(false);
+            if (!created || !onlineState.roomCode) {
+                status.textContent = document.getElementById('online-status')?.textContent || 'Could not create challenge.';
+                return;
+            }
             const code = onlineState.roomCode;
             // Public GitHub Pages URL works for both Android WebView and browsers.
             const pageUrl = new URL('https://abhinavmshukla.github.io/gotix18/');
@@ -2055,6 +2302,7 @@ let CANVAS = null;
             });
         }
         document.getElementById('btn-settings').addEventListener('click', () => { audio.playSelect(); settingsModal.classList.remove('hidden'); });
+        document.getElementById('btn-home-settings').addEventListener('click', () => { audio.playSelect(); settingsModal.classList.remove('hidden'); });
         document.getElementById('btn-close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 
         document.getElementById('btn-rules').addEventListener('click', () => {
@@ -2102,8 +2350,11 @@ let CANVAS = null;
             boxAiDiff.classList.remove('hidden');
         });
 
+        document.getElementById('select-ai-speed').value = String(config.aiSpeed);
         document.getElementById('btn-save-settings').addEventListener('click', () => {
             config.aiDiff = document.getElementById('select-ai-diff').value;
+            config.aiSpeed = Number(document.getElementById('select-ai-speed').value);
+            localStorage.setItem('gotix_ai_speed', String(config.aiSpeed));
             config.boardTheme = document.getElementById('select-board-theme').value;
             config.pieceTheme = document.getElementById('select-piece-theme').value;
             config.pieceStyle = document.getElementById('select-piece-style').value;
@@ -2186,6 +2437,7 @@ let CANVAS = null;
             ensureOnlineConnected().then(async ok => {
                 if (!ok) return;
                 updateGoogleIdentity();
+                updateProfileModalUI();
                 if (window.gutikaFB?.auth?.currentUser && !window.gutikaFB.auth.currentUser.isAnonymous) {
                     try { await loadOrCreateCloudProfile(); } catch (e) { console.error('Cloud restore failed:', e); }
                 }

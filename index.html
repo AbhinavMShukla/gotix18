@@ -16,7 +16,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=Teko:wght@500;700&family=Yatra+One&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     
     <!-- Firebase realtime backend for online play -->
-    <script type="module" src="js/firebase.js"></script>
+    <script type="module" src="js/firebase.js" onerror="window.gutikaFirebaseLoadError=true"></script>
 
     <link rel="stylesheet" href="css/style.css">
 
@@ -62,6 +62,7 @@
               <span class="royal-profile-sub">PLAYER PROFILE <i class="fa-solid fa-chevron-right"></i></span>
             </span>
           </button>
+          <button id="btn-home-settings" type="button" title="Settings" aria-label="Open settings" class="gotix-home-settings"><i class="fa-solid fa-gear"></i></button>
           <span class="royal-wallet"><i class="fa-solid fa-coins"></i> <span id="txt-menu-points">Coins: 100 🪙</span></span>
         </div>
 
@@ -167,6 +168,7 @@
     <main id="board-box" class="board-container bg-white border-2 border-amber-300 rounded-3xl p-2 shadow-xl relative overflow-hidden royal-game-board">
         <canvas id="gameCanvas"></canvas>
         <div id="floating-effects-layer" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+        <div id="gotix-turn-alert" class="gotix-turn-banner" role="status" aria-live="polite"></div>
     </main>
 
     <div id="gotix-self-slot" class="gotix-player-slot w-full max-w-lg">        <div id="card-p1" class="bg-white border-2 border-red-500 p-2 rounded-2xl flex justify-between items-center transition shadow-sm">
@@ -184,7 +186,6 @@
         </div>
 
 </div>
-    <div id="gotix-turn-alert" class="gotix-turn-banner" role="status" aria-live="polite"></div>
     <div class="gotix-warning-row"><span id="gotix-timeout-count"></span><strong id="gotix-countdown-warning" class="hidden" aria-live="off"></strong></div>
     <div id="gotix-scoreboard" class="hidden" aria-hidden="true"></div>
     <!-- Online chat: collapsed by default, quick messages and recent conversation. -->
@@ -201,7 +202,7 @@
     </section>
     <!-- Online Inline Chat Quick Input (Visible in Online Mode only) -->
     <div id="inline-chat-bar" class="w-full max-w-lg mt-1.5 hidden flex items-center gap-1.5 bg-white p-1.5 border border-amber-200 rounded-2xl shadow-sm">
-        <input id="input-online-chat" type="text" maxlength="60" placeholder="Chat message to opponent..." class="flex-1 bg-slate-100 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500" />
+        <input id="input-online-chat" maxlength="160" type="text" maxlength="60" placeholder="Chat message to opponent..." class="flex-1 bg-slate-100 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500" />
         <button id="btn-send-inline-chat" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs active-press flex items-center gap-1">
             <i class="fa-solid fa-paper-plane text-[10px]"></i> <span data-i18n="sendBtn">भेजें</span>
         </button>
@@ -408,6 +409,16 @@
                     </div>
                 </div>
 
+                <div id="box-ai-speed">
+                    <label for="select-ai-speed" class="block font-bold text-slate-700 mb-1.5">Computer Move Speed (कंप्यूटर की चाल)</label>
+                    <select id="select-ai-speed" class="w-full bg-slate-100 border border-slate-300 rounded-xl p-2.5 text-slate-800 font-medium focus:outline-none focus:border-amber-500">
+                        <option value="300">Fast — 300ms</option>
+                        <option value="700" selected>Normal — 700ms (Default)</option>
+                        <option value="1200">Relaxed — 1200ms</option>
+                    </select>
+                    <p class="text-xs text-slate-500 mt-1">केवल Computer की चाल पर लागू; आपकी गोटी तुरंत चलेगी।</p>
+                </div>
+
                 <div id="box-ai-diff" class="hidden">
                     <label id="lbl-ai-diff" class="block font-bold text-slate-700 mb-1.5" data-i18n="aiDiffLabel">AI कठिनाई (AI Difficulty)</label>
                     <select id="select-ai-diff" class="w-full bg-slate-100 border border-slate-300 rounded-xl p-2.5 text-slate-800 font-medium focus:outline-none focus:border-amber-500">
@@ -475,6 +486,7 @@
             <h2 id="win-title" class="font-yatra text-3xl text-amber-700 mb-1">बधाई हो! Congratulations</h2>
             <p id="win-subtitle" class="text-xs sm:text-sm text-slate-600 mb-5">खिलाड़ी 1 ने यह मुकाबला जीत लिया है!</p>
             
+            <p id="gotix-result-details" class="text-xs text-slate-600 mb-4 leading-relaxed" aria-live="polite"></p>
             <div class="grid grid-cols-2 gap-3">
                 <button id="btn-win-home" class="py-3 bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-xl shadow-sm hover:bg-slate-200 active-press text-xs sm:text-sm flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-house text-xs"></i> <span data-i18n="homeBtn">होम (Home)</span>

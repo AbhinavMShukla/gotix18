@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, linkWithCredential, signInWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getAuth, signInAnonymously, onAuthStateChanged, setPersistence, browserLocalPersistence, GoogleAuthProvider, linkWithCredential, signInWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, where, limit, getDocs, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 window.gutikaFirebaseReady = true;
@@ -8,6 +8,8 @@ window.connectGutikaFirebase = async (cfg) => {
   const app = getApps().length ? getApps()[0] : initializeApp(cfg);
   const auth = getAuth(app);
   const db = getFirestore(app);
+  // Explicit durable web-auth persistence: restore existing Google/guest user before creating a guest.
+  await setPersistence(auth, browserLocalPersistence);
   await auth.authStateReady();
   if (!auth.currentUser) await signInAnonymously(auth);
   window.gutikaFB = { db, auth, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, where, limit, getDocs, runTransaction, serverTimestamp };
