@@ -83,3 +83,136 @@ body {
             background: rgba(217, 119, 6, 0.5);
             border-radius: 4px;
         }
+
+
+/* GOTIX 18 — Royal Dark Home. Scoped to modal only; gameplay unaffected. */
+.royal-home{background:radial-gradient(ellipse at 50% 16%,#233d65 0%,#0b1731 46%,#050b1b 100%);overflow-y:auto;overscroll-behavior:contain;color:#fff}
+.royal-home::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.13;background-image:linear-gradient(45deg,transparent 48%,#d3ad6c 49%,#d3ad6c 50%,transparent 51%),linear-gradient(-45deg,transparent 48%,#d3ad6c 49%,#d3ad6c 50%,transparent 51%);background-size:110px 110px;mask-image:linear-gradient(to bottom,transparent,#000 40%,transparent)}
+.royal-shell{border:1px solid rgba(235,190,103,.34);border-radius:27px;background:linear-gradient(165deg,rgba(22,42,76,.96),rgba(8,20,43,.98) 62%,rgba(8,18,37,.98));box-shadow:0 18px 60px #0008, inset 0 1px #fff1;padding:clamp(15px,3vh,24px);max-height:calc(100dvh - 20px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#6e5736 transparent}
+.royal-topbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.royal-profile{display:flex;align-items:center;gap:9px;min-width:0;text-align:left}
+.royal-avatar{width:39px;height:39px;display:grid;place-items:center;flex:none;border-radius:13px;color:#f4cc83;background:#293d5e;border:1px solid #a7874a80}
+.royal-profile-info{display:flex;flex-direction:column;min-width:0}
+.royal-player{font-size:12px;font-weight:800;color:#f6ead3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:155px}
+.royal-profile-sub{font-size:9px;letter-spacing:1px;color:#b6c4d8}
+.royal-wallet{font-size:11px;white-space:nowrap;padding:10px 11px;border-radius:99px;background:#273752;border:1px solid #b9985b80;color:#f8d28b;font-weight:800}
+.royal-wallet i{margin-right:3px}
+.royal-brand{text-align:center;padding:clamp(12px,2.4vh,22px) 0 clamp(12px,2.4vh,20px)}
+.royal-overline{font-size:9px;letter-spacing:2px;color:#c8a96e;font-weight:800}
+.royal-logo-wrap{width:clamp(82px,15vh,128px);height:clamp(82px,15vh,128px);margin:9px auto 6px;border-radius:24px;display:grid;place-items:center;background:radial-gradient(circle,#314969,#111f39 75%);border:1px solid #a9875180;box-shadow:0 9px 32px #0007}
+.royal-logo{width:100%;height:100%;object-fit:contain;border-radius:22px}
+.royal-title{font-family:'Yatra One',Georgia,serif;font-size:clamp(27px,5.5vh,42px);line-height:1.1;letter-spacing:1px;color:#f8d38a;text-shadow:0 2px 12px #b48c4e50}
+.royal-title span{color:#fff0c4}
+.royal-subtitle{font-size:11px;color:#c7d2e2;margin-top:5px}
+.royal-mode-stack{display:grid;gap:11px}
+.royal-action{transition:transform .14s,filter .14s;cursor:pointer}
+.royal-action:active{transform:scale(.975)}
+.royal-online{display:flex;align-items:center;text-align:left;gap:12px;width:100%;padding:16px;border-radius:17px;background:linear-gradient(120deg,#f5d58c,#d7a54e 65%,#b47b2c);color:#18243b;border:1px solid #ffe6ae;box-shadow:0 6px 0 #77511f80,0 11px 25px #0005}
+.royal-mode-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#14284b;color:#f5d58c;font-size:19px;flex:none}
+.royal-mode-copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.royal-mode-copy strong{font-size:15px;font-weight:900}
+.royal-mode-copy small{font-size:10px;font-weight:600;opacity:.8;margin-top:2px}
+.royal-arrow{font-size:15px}
+.royal-mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.royal-ai-panel{min-width:0;border-radius:16px;background:#203251;border:1px solid #51617a;overflow:hidden}
+.royal-secondary{width:100%;min-height:116px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:16px;background:#203251;color:#f7f1e7;border:1px solid #51617a;padding:10px 5px}
+.royal-ai-panel .royal-secondary{border:none;border-radius:0;min-height:83px;padding-bottom:0}
+.royal-secondary-icon{font-size:23px;color:#edc879;margin-bottom:3px}
+.royal-secondary strong{font-size:12px;font-weight:850;text-align:center}
+.royal-secondary small{font-size:9px;color:#b4c4d9;text-align:center}
+.royal-difficulty{display:flex;justify-content:center;gap:3px;padding:6px}
+.royal-difficulty .btn-diff-choice{padding:5px 6px;font-size:9px;border:1px solid #6c7b92;border-radius:7px;background:#122440;color:#dce5f2;flex:1}
+.royal-difficulty .btn-diff-choice.bg-amber-600{background:#d6a64d!important;border-color:#f5d58c!important;color:#152640!important}
+.royal-footer{margin-top:15px}
+.royal-lang{display:flex;align-items:center;justify-content:center;gap:7px}
+.royal-lang span{font-size:10px;color:#b5c5dc;margin-right:5px}
+.royal-lang button{font-size:10px;font-weight:800;color:#e9d4ab;background:#233653;border:1px solid #5b6b81;border-radius:9px;padding:6px 11px}
+.royal-lang button.bg-amber-600{background:#d4a651!important;color:#16243d!important;border-color:#f3d58b!important}
+.royal-footer-note{text-align:center;margin-top:13px;color:#7e92b1;font-size:9px;letter-spacing:1.4px}
+.royal-footer-note span{color:#d8ad64;padding:0 6px}
+@media(max-height:670px){.royal-shell{padding:13px}.royal-brand{padding:9px 0}.royal-logo-wrap{width:74px;height:74px}.royal-secondary{min-height:88px}.royal-ai-panel .royal-secondary{min-height:67px}.royal-online{padding:11px}.royal-footer{margin-top:9px}}
+
+/* Royal Battle motion — CSS-only, no timers, no Firebase/gameplay changes. */
+.royal-brand{position:relative;isolation:isolate}
+.royal-sparkles{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:-1}
+.royal-sparkles span{position:absolute;color:#f7d48a;font-size:16px;opacity:0;animation:royalTwinkle 4.5s ease-in-out infinite}
+.royal-sparkles span:nth-child(1){left:8%;top:25%;animation-delay:.2s}
+.royal-sparkles span:nth-child(2){left:88%;top:15%;animation-delay:1.2s;font-size:22px}
+.royal-sparkles span:nth-child(3){left:20%;top:74%;animation-delay:2.2s;font-size:11px}
+.royal-sparkles span:nth-child(4){left:78%;top:78%;animation-delay:3.1s}
+.royal-sparkles span:nth-child(5){left:50%;top:6%;animation-delay:1.8s;font-size:9px}
+.royal-logo-wrap{position:relative;animation:royalLogoEntrance .9s cubic-bezier(.2,.8,.2,1) both,royalLogoFloat 5s ease-in-out 1s infinite;will-change:transform}
+.royal-logo-halo{position:absolute;inset:-8px;border:1px solid #e8c37988;border-radius:29px;box-shadow:0 0 24px #c99c4a45;animation:royalHalo 3.2s ease-in-out infinite;pointer-events:none}
+.royal-title{animation:royalTitleEntrance .8s ease-out .25s both}
+.royal-battle{display:flex;justify-content:center;align-items:center;gap:8px;height:19px;margin:4px auto 2px}
+.royal-piece{display:block;width:13px;height:13px;border-radius:50%;box-shadow:inset -3px -3px 3px #0006,0 0 7px currentColor;animation:royalPieceMove 3s ease-in-out infinite alternate}
+.royal-piece-red{background:#e34b50;color:#e34b50}
+.royal-piece-blue{background:#2a9fe2;color:#2a9fe2;animation-direction:alternate-reverse}
+.royal-battle-line{height:1px;width:26px;background:linear-gradient(90deg,transparent,#d8ad64,transparent)}
+.royal-battle-star{color:#f7d48a;font-size:17px;animation:royalStarPulse 2s ease-in-out infinite}
+.royal-online{position:relative;overflow:hidden}
+.royal-online::after{content:"";position:absolute;top:-60%;left:-70%;width:35%;height:220%;background:linear-gradient(90deg,transparent,#fff8,transparent);transform:rotate(25deg);animation:royalButtonShine 5.5s ease-in-out 2s infinite;pointer-events:none}
+.royal-shell{animation:royalShellEnter .5s ease-out both}
+@keyframes royalShellEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes royalLogoEntrance{from{opacity:0;transform:translateY(12px) scale(.85)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes royalLogoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes royalTitleEntrance{from{opacity:0;letter-spacing:5px}to{opacity:1;letter-spacing:1px}}
+@keyframes royalHalo{0%,100%{opacity:.45;transform:scale(.98)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes royalTwinkle{0%,100%{opacity:0;transform:scale(.5)}40%,60%{opacity:.85;transform:scale(1.1)}}
+@keyframes royalPieceMove{0%,25%{transform:translateX(0)}70%,100%{transform:translateX(10px)}}
+@keyframes royalStarPulse{0%,100%{opacity:.55;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}}
+@keyframes royalButtonShine{0%,72%{left:-70%}100%{left:150%}}
+@media(prefers-reduced-motion:reduce){.royal-home *, .royal-home *::before,.royal-home *::after{animation:none!important;transition:none!important}}
+
+/* Royal board presentation: no node coordinates, edges, or game rules changed. */
+#board-box.royal-game-board{background:radial-gradient(ellipse at 50% 43%,#25456c 0%,#132b4b 57%,#09182f 100%)!important;border:2px solid #d3ac66!important;box-shadow:0 0 0 3px #1a2c47,0 0 20px #d5a75b55,inset 0 0 25px #050b20!important;isolation:isolate}
+#board-box.royal-game-board::before{content:"";position:absolute;inset:3px;z-index:0;border-radius:19px;pointer-events:none;border:1px solid #f6d99955;box-shadow:inset 0 0 22px #f2cc6630;animation:royalBoardAura 5s ease-in-out infinite}
+#board-box.royal-game-board canvas{position:relative;z-index:1}
+#board-box.royal-game-board #floating-effects-layer{z-index:2}
+#board-box.royal-game-board .floating-capture-text{font-weight:900!important;color:#ffe4a2!important;text-shadow:0 0 9px #f9b34d,0 2px 4px #000!important;animation:royalCapturePop .9s ease-out forwards}
+@keyframes royalBoardAura{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes royalCapturePop{0%{transform:translateY(6px) scale(.7);opacity:0}20%{transform:translateY(-8px) scale(1.25);opacity:1}100%{transform:translateY(-35px) scale(1);opacity:0}}
+@media(prefers-reduced-motion:reduce){#board-box.royal-game-board::before,#board-box.royal-game-board .floating-capture-text{animation:none!important}}
+
+/* GOTIX 18: player perspective, unobtrusive alerts and urgent countdown */
+#gotix-scoreboard{display:flex!important;flex-direction:column!important;}
+#gotix-scoreboard > div{width:100%;min-height:47px;}
+#gotix-scoreboard .gotix-my-card{box-shadow:0 0 0 1px rgba(236,193,109,.5),0 0 14px rgba(236,193,109,.18);}
+.gotix-turn-banner{position:relative;text-align:center;min-height:0;font-size:0;pointer-events:none;color:#f8d98a;font-weight:900;letter-spacing:.08em;text-shadow:0 0 12px #ad742a;}
+.gotix-alert-pop{animation:gotixTurnNotice 1.9s ease-out both;}
+@keyframes gotixTurnNotice{0%{font-size:0;max-height:0;opacity:0;transform:scale(.85)}15%{font-size:15px;max-height:30px;opacity:1;transform:scale(1.08)}65%{font-size:15px;max-height:30px;opacity:1;transform:scale(1)}100%{font-size:0;max-height:0;opacity:0;transform:scale(.95)}}
+.gotix-warning-row{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:32rem;min-height:16px;font-size:11px;color:#dfbb75;}
+#gotix-countdown-warning{color:#f4b84e;font-weight:900;animation:gotixWarningPulse .65s ease-in-out infinite alternate;}
+#gotix-countdown-warning.gotix-countdown-urgent{color:#fb6262;font-size:15px;}
+@keyframes gotixWarningPulse{from{transform:scale(1);opacity:.8}to{transform:scale(1.09);opacity:1}}
+@media(prefers-reduced-motion:reduce){.gotix-alert-pop,#gotix-countdown-warning{animation:none!important;}}
+
+/* GOTIX 18 compact playing screen: board remains untouched. */
+#gotix-opponent-slot,#gotix-self-slot{display:block;width:100%;margin:3px auto;}
+.gotix-player-slot > div{min-height:40px;padding:5px 10px!important;border-radius:13px!important;background:#152b4a!important;color:#f8d98a!important;}
+.gotix-player-slot #lbl-p1-name,.gotix-player-slot #lbl-p2-name{color:#f5e5be!important;max-width:165px!important;}
+.gotix-player-slot #lost-p1,.gotix-player-slot #lost-p2{color:#a8bbd4!important;}
+.gotix-player-slot #count-p1,.gotix-player-slot #count-p2{font-size:23px!important;}
+#board-box{margin-top:2px!important;margin-bottom:2px!important;}
+header{position:relative;min-height:42px!important;padding:4px 10px!important;background:#102543!important;border-color:#b68d4d!important;}
+header #txt-app-title{font-size:15px!important;color:#f1cb7a!important;}
+header #txt-app-subtitle{display:none!important;}
+#gotix-more-options{position:absolute;right:43px;top:42px;z-index:40;max-width:210px;display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:9px;background:#102543;border:1px solid #c49b54;border-radius:12px;box-shadow:0 8px 24px #0008;}
+#gotix-more-options.hidden{display:none!important;}
+#gotix-more-options button{background:#263e5d!important;border-color:#526683!important;color:#f0d395!important;}
+#gotix-scoreboard{display:none!important;}
+#inline-chat-bar{max-width:32rem;}
+
+/* Minimal gameplay HUD and collapsible online chat */
+#txt-app-title{display:none!important}
+#gotix-chat-wrap{margin-top:5px}
+.gotix-chat-toggle{width:100%;display:flex;align-items:center;justify-content:center;gap:9px;background:#142a48;color:#f1d18a;border:1px solid #b78f4e;border-radius:11px;padding:7px 12px;font-size:12px;font-weight:700}
+.gotix-chat-unread{background:#d04d51;color:#fff;border-radius:999px;padding:1px 6px;font-size:10px}
+.gotix-chat-panel{background:#12243d;border:1px solid #b78f4e;border-radius:12px;margin-top:5px;padding:8px}
+.gotix-chat-history{max-height:125px;overflow-y:auto;display:flex;flex-direction:column;gap:5px}
+.gotix-chat-message{background:#233c5b;color:#e5ebf5;border-radius:8px;padding:5px 8px;font-size:11px;display:flex;gap:7px;overflow-wrap:anywhere}
+.gotix-chat-message strong{color:#f1cf88;flex-shrink:0}
+.gotix-chat-message.mine{background:#354b53}
+.gotix-chat-quick{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.gotix-chat-quick button{border:1px solid #bd9858;color:#e7d0a3;border-radius:8px;padding:5px 8px;font-size:11px}
+#inline-chat-bar{margin-top:5px!important}

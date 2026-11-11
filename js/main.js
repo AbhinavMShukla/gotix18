@@ -5,11 +5,13 @@ let CANVAS = null;
             lang: 'hi',
             mode: 'pvp',
             aiDiff: 'medium',
-            boardTheme: 'wooden',
+            boardTheme: 'royal',
             pieceTheme: 'red_black',
             pieceStyle: 'vertical',
-            soundEnabled: true,
-            bgmEnabled: false,
+            soundEnabled: localStorage.getItem('gotix_sound_enabled') !== 'false',
+            bgmEnabled: localStorage.getItem('gotix_bgm_enabled') !== 'false',
+            musicVolume: Number(localStorage.getItem('gotix_music_volume') ?? .25),
+            sfxVolume: Number(localStorage.getItem('gotix_sfx_volume') ?? .6),
             username: localStorage.getItem('gutika_username') || 'Player_' + Math.floor(Math.random() * 9000 + 1000)
         };
 
@@ -30,6 +32,11 @@ let CANVAS = null;
             connected: false, 
             startedLocally: false,
             moveTimer: 120,
+            turnDeadline: null,
+            timeoutCounts: {P1: 0, P2: 0},
+            resolvingTimeout: false,
+            lastAlertTurnKey: null,
+            lastTickSecond: null,
             turnInterval: null,
             syncInterval: null,
             chatMessages: [],
@@ -51,75 +58,94 @@ let CANVAS = null;
             timerInterval: null
         };
 
+        // GOTIX 18 Royal Sound Pack: offline original audio, separate music/SFX volumes.
         class SoundFX {
-            constructor() { this.ctx = null; this.bgmInterval = null; }
+            constructor() {
+                this.ctx = null;
+                this.music = new Audio('audio/royal-home.wav');
+                this.music.loop = true;
+                this.music.preload = 'auto';
+                this.files = {};
+                ['select','move','capture','capture-opponent','victory','loss'].forEach(k => {
+                    const a = new Audio(`audio/${k}.wav`);
+                    a.preload = 'auto';
+                    this.files[k] = a;
+                });
+                this.music.volume = 0;
+                this.unlocked = false;
+                this.winPlayed = false;
+                this.fade = null;
+            }
             init() {
                 if (!this.ctx) {
-                    const AudioContext = window.AudioContext || window.webkitAudioContext;
-                    if (AudioContext) this.ctx = new AudioContext();
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (AC) this.ctx = new AC();
                 }
+                if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
             }
-            playBeep(freq, type = 'sine', duration = 0.15, vol = 0.1) {
+            unlock() {
+                this.unlocked = true;
+                this.init();
+                this.updateMusic();
+            }
+            sfx(key) {
+                if (!config.soundEnabled) return;
+                const a = this.files[key];
+                if (!a) return;
+                try {
+                    const copy = a.cloneNode();
+                    copy.volume = Math.max(0, Math.min(1, config.sfxVolume ?? .6));
+                    copy.play().catch(() => {});
+                } catch (e) { /* audio unavailable; gameplay unaffected */ }
+            }
+            playBeep(freq, type = 'sine', duration = .15, vol = .1) {
                 if (!config.soundEnabled) return;
                 this.init();
                 if (!this.ctx) return;
                 try {
-                    const osc = this.ctx.createOscillator();
-                    const gain = this.ctx.createGain();
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
                     osc.type = type;
                     osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-                    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
-                    osc.connect(gain);
-                    gain.connect(this.ctx.destination);
-                    osc.start();
-                    osc.stop(this.ctx.currentTime + duration);
-                } catch (e) {}
+                    gain.gain.setValueAtTime(vol * (config.sfxVolume ?? .6), this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(.001, this.ctx.currentTime + duration);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + duration);
+                } catch(e) {}
             }
-            playSelect() { this.playBeep(520, 'sine', 0.08, 0.1); }
-            playMove() { 
-                this.playBeep(440, 'triangle', 0.09, 0.15); 
-                setTimeout(() => this.playBeep(580, 'sine', 0.09, 0.1), 40);
-            }
-            playCapture() { 
-                this.playBeep(220, 'sawtooth', 0.14, 0.22); 
-                setTimeout(() => this.playBeep(110, 'square', 0.2, 0.2), 60);
-            }
-            playWin() {
-                [523, 659, 783, 1046, 1318].forEach((f, i) => {
-                    setTimeout(() => this.playBeep(f, 'sine', 0.35, 0.2), i * 110);
-                });
-            }
-            playLoss() {
-                [350, 310, 270, 220].forEach((f, i) => {
-                    setTimeout(() => this.playBeep(f, 'sawtooth', 0.3, 0.2), i * 140);
-                });
-            }
+            playSelect() { this.sfx('select'); }
+            playMove() { this.sfx('move'); }
+            playCapture(isMine = true) { this.sfx(isMine ? 'capture' : 'capture-opponent'); }
+            playWin() { this.stopBGM(); this.sfx('victory'); }
+            playLoss() { this.stopBGM(); this.sfx('loss'); }
             toggleBGM() {
                 config.bgmEnabled = !config.bgmEnabled;
+                localStorage.setItem('gotix_bgm_enabled', String(config.bgmEnabled));
+                this.updateMusic();
+            }
+            startBGM() { this.updateMusic(); }
+            stopBGM() { this.fadeTo(0, true); }
+            fadeTo(target, pauseAtEnd = false) {
+                if (this.fade) clearInterval(this.fade);
+                const a = this.music;
+                let n = 0, initial = a.volume;
+                this.fade = setInterval(() => {
+                    n++;
+                    a.volume = Math.max(0, Math.min(1, initial + (target - initial) * n / 12));
+                    if (n >= 12) {
+                        clearInterval(this.fade); this.fade = null;
+                        if (pauseAtEnd) a.pause();
+                    }
+                }, 35);
+            }
+            updateMusic() {
+                const menu = document.getElementById('modal-start-menu');
+                const shouldPlay = this.unlocked && config.bgmEnabled && menu && !menu.classList.contains('hidden') && !document.hidden;
                 const btn = document.getElementById('btn-bgm');
-                if (config.bgmEnabled) {
-                    btn.innerHTML = `<i class="fa-solid fa-music text-xs text-amber-600"></i>`;
-                    this.startBGM();
-                } else {
-                    btn.innerHTML = `<i class="fa-solid fa-music text-xs opacity-50"></i>`;
-                    this.stopBGM();
-                }
+                if (btn) btn.innerHTML = config.bgmEnabled ? '<i class="fa-solid fa-music text-xs text-amber-600"></i>' : '<i class="fa-solid fa-music text-xs opacity-50"></i>';
+                if (shouldPlay) {
+                    this.music.play().then(() => this.fadeTo(config.musicVolume ?? .25)).catch(() => {});
+                } else this.stopBGM();
             }
-            startBGM() {
-                this.init();
-                if (!this.ctx) return;
-                this.stopBGM();
-                const notes = [220, 247, 261, 293, 329, 349, 392];
-                let noteIdx = 0;
-                this.bgmInterval = setInterval(() => {
-                    if (!config.bgmEnabled) return;
-                    const freq = notes[noteIdx % notes.length];
-                    this.playBeep(freq, 'sine', 0.6, 0.025);
-                    noteIdx = (noteIdx + Math.floor(Math.random() * 3 + 1)) % notes.length;
-                }, 800);
-            }
-            stopBGM() { if (this.bgmInterval) clearInterval(this.bgmInterval); }
         }
         const audio = new SoundFX();
 
@@ -153,6 +179,7 @@ let CANVAS = null;
 
         const THEMES = {
             boards: {
+                royal: { line: '#e7c279', shadowLine: '#f9e6b1', nodeFill: '#172d4b', nodeBorder: '#c99b54', ring: '#e6bf76' },
                 wooden: { line: '#b45309', shadowLine: '#fef3c7', nodeFill: '#ffffff', nodeBorder: '#92400e', ring: '#d97706' },
                 classic: { line: '#166534', shadowLine: '#dcfce7', nodeFill: '#ffffff', nodeBorder: '#14532d', ring: '#15803d' },
                 dark: { line: '#334155', shadowLine: '#f1f5f9', nodeFill: '#ffffff', nodeBorder: '#1e293b', ring: '#475569' },
@@ -359,6 +386,7 @@ let CANVAS = null;
             for (let i = 0; i < 18; i++) gameState.board[i] = 'P2';
             for (let i = 19; i < 37; i++) gameState.board[i] = 'P1';
 
+            onlineState.lastAlertTurnKey = null;
             gameState.turn = randomTurn ? (Math.random() < 0.5 ? 'P1' : 'P2') : 'P1';
             gameState.selectedNode = null;
             gameState.legalMoves = [];
@@ -393,30 +421,88 @@ let CANVAS = null;
             }, 1000);
         }
 
+        const TURN_LIMIT_MS = 120000;
+        function isMyTurn() {
+            return config.mode === 'online' ? gameState.turn === onlineState.role :
+                   config.mode === 'ai' ? gameState.turn === 'P1' : true;
+        }
+        function notifyTurnIfNeeded() {
+            if (gameState.gameOver || !isMyTurn()) return;
+            const key = config.mode === 'online'
+                ? `${onlineState.roomCode}:${gameState.turn}:${onlineState.turnDeadline}`
+                : `${config.mode}:${gameState.turn}:${gameState.moveLogs.length}`;
+            if (onlineState.lastAlertTurnKey === key) return;
+            onlineState.lastAlertTurnKey = key;
+            const el = document.getElementById('gotix-turn-alert');
+            if (el) {
+                el.textContent = config.lang === 'hi' ? 'आपकी चाल है!' : 'YOUR TURN!';
+                el.classList.remove('gotix-alert-pop');
+                void el.offsetWidth;
+                el.classList.add('gotix-alert-pop');
+            }
+            audio.playBeep(820, 'sine', .13, .13);
+            setTimeout(() => audio.playBeep(1060, 'sine', .16, .11), 160);
+        }
+        function updateTurnWarnings() {
+            const warning = document.getElementById('gotix-countdown-warning');
+            const indicator = document.getElementById('gotix-timeout-count');
+            if (indicator) {
+                const ownRole = config.mode === 'online' ? onlineState.role : gameState.turn;
+                const count = onlineState.timeoutCounts[ownRole] || 0;
+                indicator.textContent = config.mode === 'online' ?
+                    (config.lang === 'hi' ? `समय चेतावनी: ${count}/3` : `Timeouts: ${count}/3`) : '';
+            }
+            if (!warning) return;
+            const show = config.mode === 'online' && !gameState.gameOver && isMyTurn() && onlineState.moveTimer <= 10 && onlineState.moveTimer > 0;
+            warning.classList.toggle('hidden', !show);
+            warning.classList.toggle('gotix-countdown-urgent', show && onlineState.moveTimer <= 5);
+            if (show) warning.textContent = config.lang === 'hi' ? `जल्दी चाल चलें! ${onlineState.moveTimer}` : `PLAY NOW! ${onlineState.moveTimer}`;
+            if (show && onlineState.lastTickSecond !== onlineState.moveTimer) {
+                onlineState.lastTickSecond = onlineState.moveTimer;
+                audio.playBeep(onlineState.moveTimer <= 5 ? 1040 : 720, 'square', .075, .09);
+            }
+        }
         function startOnlineTurnTimer() {
             if (onlineState.turnInterval) clearInterval(onlineState.turnInterval);
             if (onlineState.syncInterval) clearInterval(onlineState.syncInterval);
             if (config.mode !== 'online' || gameState.gameOver) return;
-
-            onlineState.moveTimer = 120;
-            updateUI();
-
-            // No periodic board writes: only actual moves publish state.
             onlineState.syncInterval = null;
-
             onlineState.turnInterval = setInterval(() => {
                 if (gameState.gameOver || config.mode !== 'online') return;
-                onlineState.moveTimer--;
-                
-                if (onlineState.moveTimer <= 0) {
-                    audio.playBeep(300, 'square', 0.2, 0.2);
-                    onlineState.moveTimer = 120;
-                    if (gameState.turn === onlineState.role) {
-                        endTurn();
-                    }
+                if (onlineState.turnDeadline) {
+                    onlineState.moveTimer = Math.max(0, Math.ceil((onlineState.turnDeadline - Date.now()) / 1000));
+                    if (onlineState.moveTimer === 0) void resolveOnlineTimeout();
                 }
                 updateUI();
-            }, 1000);
+                updateTurnWarnings();
+            }, 250);
+        }
+        async function resolveOnlineTimeout() {
+            if (onlineState.resolvingTimeout || !onlineState.roomRef || !onlineState.turnDeadline || gameState.gameOver) return;
+            onlineState.resolvingTimeout = true;
+            try {
+                const f = window.gutikaFB;
+                await f.runTransaction(f.db, async tx => {
+                    const snap = await tx.get(onlineState.roomRef);
+                    if (!snap.exists()) return;
+                    const d = snap.data();
+                    if (d.status !== 'playing' || d.gameOver || !d.turnDeadline || Date.now() < d.turnDeadline) return;
+                    if (d.turnDeadline !== onlineState.turnDeadline) return;
+                    const role = d.turn;
+                    const counts = {P1: Number(d.timeoutCounts?.P1 || 0), P2: Number(d.timeoutCounts?.P2 || 0)};
+                    counts[role]++;
+                    if (counts[role] >= 3) {
+                        tx.update(onlineState.roomRef, {status:'finished', gameOver:true,
+                            winner: role === 'P1' ? 'P2' : 'P1', finishReason:'timeout',
+                            timeoutCounts:counts, turnDeadline:null, updatedAt:Date.now()});
+                    } else {
+                        tx.update(onlineState.roomRef, {turn: role === 'P1' ? 'P2' : 'P1',
+                            timeoutCounts:counts, turnDeadline:Date.now()+TURN_LIMIT_MS,
+                            updatedAt:Date.now()});
+                    }
+                });
+            } catch(e) { console.error('Turn timeout sync failed:',e); }
+            finally { onlineState.resolvingTimeout = false; }
         }
 
         function stopTimer() {
@@ -515,6 +601,15 @@ let CANVAS = null;
 
             const theme = THEMES.boards[config.boardTheme] || THEMES.boards.wooden;
 
+            // Royal-only ambient finish; never modifies geometry or game state.
+            if (config.boardTheme === 'royal') {
+                const vignette = CTX.createRadialGradient(canvasWidth/2,canvasHeight/2,canvasWidth*.07,canvasWidth/2,canvasHeight/2,canvasWidth*.72);
+                vignette.addColorStop(0,'rgba(36,69,111,.12)');
+                vignette.addColorStop(1,'rgba(3,9,24,.25)');
+                CTX.fillStyle=vignette;
+                CTX.fillRect(0,0,canvasWidth,canvasHeight);
+            }
+
             // Render Player Labels
             const topY = computedNodes[1].y - computedNodes[1].radius * 2.2;
             const botY = computedNodes[35].y + computedNodes[35].radius * 2.2;
@@ -532,6 +627,10 @@ let CANVAS = null;
             // Board Lines
             CTX.lineWidth = Math.max(1.5, canvasWidth * 0.004);
             CTX.strokeStyle = theme.line;
+            if (config.boardTheme === 'royal') {
+                CTX.shadowColor = 'rgba(244,194,100,.72)';
+                CTX.shadowBlur = 7;
+            }
             CTX.lineCap = 'round';
 
             const drawnEdges = new Set();
@@ -549,6 +648,9 @@ let CANVAS = null;
                     }
                 }
             }
+
+            CTX.shadowBlur = 0;
+            CTX.shadowColor = 'transparent';
 
             touchRipples.forEach((rip, index) => {
                 rip.radius += 1.8;
@@ -574,6 +676,15 @@ let CANVAS = null;
                 CTX.arc(node.x, node.y, nodeR, 0, Math.PI * 2);
                 CTX.fillStyle = occupant ? (occupant === 'P1' ? colors.p1.mid : colors.p2.mid) : theme.nodeFill;
                 CTX.fill();
+                if (occupant && config.boardTheme === 'royal') {
+                    CTX.save();
+                    CTX.shadowColor = occupant === 'P1' ? '#ef4444' : '#38bdf8';
+                    CTX.shadowBlur = 8;
+                    CTX.strokeStyle = occupant === 'P1' ? '#ff8b83' : '#7dd3fc';
+                    CTX.lineWidth = 1.2;
+                    CTX.stroke();
+                    CTX.restore();
+                }
                 CTX.lineWidth = 2;
                 CTX.strokeStyle = occupant ? (occupant === 'P1' ? colors.p1.dark : colors.p2.dark) : theme.nodeBorder;
                 CTX.stroke();
@@ -591,11 +702,16 @@ let CANVAS = null;
                 const node = computedNodes[m.targetNode];
                 CTX.beginPath();
                 CTX.arc(node.x, node.y, node.radius * 1.05, 0, Math.PI * 2);
-                CTX.fillStyle = m.capturedNode !== null ? 'rgba(239, 68, 68, 0.45)' : 'rgba(34, 197, 94, 0.45)';
+                CTX.fillStyle = m.capturedNode !== null ? 'rgba(244, 75, 75, .42)' : 'rgba(46, 230, 153, .32)';
+                if (config.boardTheme === 'royal') {
+                    CTX.shadowColor = m.capturedNode !== null ? '#fb7185' : '#34d399';
+                    CTX.shadowBlur = 13;
+                }
                 CTX.fill();
                 CTX.lineWidth = 2.5;
                 CTX.strokeStyle = m.capturedNode !== null ? '#ef4444' : '#22c55e';
                 CTX.stroke();
+                CTX.shadowBlur = 0;
             });
 
             if (gameState.selectedNode !== null) {
@@ -605,8 +721,15 @@ let CANVAS = null;
                 CTX.fillStyle = gameState.turn === 'P1' ? 'rgba(239, 68, 68, 0.35)' : 'rgba(2, 132, 199, 0.35)';
                 CTX.fill();
                 CTX.lineWidth = 2;
-                CTX.strokeStyle = gameState.turn === 'P1' ? '#ef4444' : '#0284c7';
+                CTX.strokeStyle = config.boardTheme === 'royal' ? '#ffe3a0' : (gameState.turn === 'P1' ? '#ef4444' : '#0284c7');
+                if (config.boardTheme === 'royal') {
+                    const pulse = .5 + .5 * Math.sin(performance.now()/230);
+                    CTX.lineWidth = 2 + pulse*1.6;
+                    CTX.shadowColor = '#f8cf7e';
+                    CTX.shadowBlur = 9 + pulse*10;
+                }
                 CTX.stroke();
+                CTX.shadowBlur = 0;
             }
 
             const colors = THEMES.pieces[config.pieceTheme];
@@ -660,7 +783,7 @@ let CANVAS = null;
 
             CTX.restore();
 
-            if (activeAnimation || particles.length > 0 || touchRipples.length > 0) {
+            if (activeAnimation || particles.length > 0 || touchRipples.length > 0 || (config.boardTheme === 'royal' && gameState.selectedNode !== null && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
                 requestAnimationFrame(render);
             }
         }
@@ -798,7 +921,7 @@ let CANVAS = null;
                 captured = true;
 
                 spawnCaptureBurst(computedNodes[capNode].x, computedNodes[capNode].y);
-                audio.playCapture();
+                audio.playCapture(config.mode === 'online' ? gameState.turn === onlineState.role : (config.mode === 'ai' ? gameState.turn === 'P1' : true));
             } else {
                 audio.playMove();
             }
@@ -846,8 +969,11 @@ let CANVAS = null;
 
             updateUI();
             render();
+            if (config.mode !== 'online') notifyTurnIfNeeded();
             
             if (config.mode === 'online') {
+                onlineState.turnDeadline = Date.now() + TURN_LIMIT_MS;
+                onlineState.lastTickSecond = null;
                 startOnlineTurnTimer();
                 publishOnlineState();
             }
@@ -1174,15 +1300,18 @@ let CANVAS = null;
                 p1Label.innerText = config.username + ` (${lang.you})`;
                 p2Label.innerText = lang.computer;
                 document.getElementById('inline-chat-bar').classList.add('hidden');
+                document.getElementById('gotix-chat-wrap').classList.add('hidden');
             } else if (config.mode === 'online') {
                 p1Label.innerText = onlineState.role === 'P1' ? `${config.p1Name || config.username} (${lang.you})` : (config.p1Name || 'Player 1');
                 p2Label.innerText = onlineState.role === 'P2' ? `${config.p2Name || config.username} (${lang.you})` : (config.p2Name || 'Player 2');
-                document.getElementById('inline-chat-bar').classList.remove('hidden');
-                document.getElementById('inline-chat-bar').classList.add('flex');
+                document.getElementById('gotix-chat-wrap').classList.remove('hidden');
+                document.getElementById('inline-chat-bar').classList.toggle('hidden', !gotixChatOpen);
+                document.getElementById('inline-chat-bar').classList.toggle('flex', gotixChatOpen);
             } else {
                 p1Label.innerText = config.username;
                 p2Label.innerText = lang.p2Default;
                 document.getElementById('inline-chat-bar').classList.add('hidden');
+                document.getElementById('gotix-chat-wrap').classList.add('hidden');
             }
 
             const cardP1 = document.getElementById('card-p1');
@@ -1202,6 +1331,19 @@ let CANVAS = null;
                 badgeP1.classList.add('hidden');
             }
 
+            // Place actual player cards on opposite sides of the canvas.
+            // Online role is fixed per device; pass-and-play follows the current turn.
+            const myRole = config.mode === 'online' ? (onlineState.role || 'P1') :
+                config.mode === 'ai' ? 'P1' : gameState.turn;
+            const opponentCard = myRole === 'P1' ? cardP2 : cardP1;
+            const selfCard = myRole === 'P1' ? cardP1 : cardP2;
+            const opponentSlot = document.getElementById('gotix-opponent-slot');
+            const selfSlot = document.getElementById('gotix-self-slot');
+            if (opponentSlot && opponentCard.parentElement !== opponentSlot) opponentSlot.appendChild(opponentCard);
+            if (selfSlot && selfCard.parentElement !== selfSlot) selfSlot.appendChild(selfCard);
+            opponentCard.classList.remove('gotix-my-card');
+            selfCard.classList.add('gotix-my-card');
+            updateTurnWarnings();
             const statusMsg = document.getElementById('status-message');
             if (gameState.gameOver) {
                 statusMsg.innerText = lang.statusGameOver;
@@ -1311,7 +1453,19 @@ let CANVAS = null;
 
         document.getElementById('btn-exit-game').addEventListener('click', async () => {
             audio.playSelect();
-            if (config.mode === 'online' && !await leaveOnlineRoom(true)) return;
+            const activeMatch = !gameState.gameOver &&
+                (config.mode !== 'online' || onlineState.startedLocally);
+            const warning = activeMatch
+                ? 'मैच छोड़ने पर आपकी हार दर्ज होगी। क्या आप सचमुच Exit करना चाहते हैं?\n\nLeaving now will count as a loss. Exit?'
+                : 'क्या आप गेम से बाहर निकलना चाहते हैं? / Exit game?';
+            if (!window.confirm(warning)) return;
+            if (config.mode === 'online') {
+                if (!await leaveOnlineRoom(true)) return;
+            } else if (activeMatch) {
+                // End the local match before returning to the menu.
+                gameState.gameOver = true;
+                stopTimer();
+            }
             document.getElementById('modal-online').classList.add('hidden');
             document.getElementById('modal-start-menu').classList.remove('hidden');
         });
@@ -1345,6 +1499,47 @@ let CANVAS = null;
         const rulesModal = document.getElementById('modal-rules');
         const logModal = document.getElementById('modal-log');
 
+        // Compact online chat: keep existing Firestore chatMessages format intact.
+        let gotixChatOpen = false;
+        let gotixChatUnread = 0;
+        const gotixChatToggle = document.getElementById('gotix-chat-toggle');
+        const gotixChatPanel = document.getElementById('gotix-chat-panel');
+        const gotixChatHistory = document.getElementById('gotix-chat-history');
+        function refreshGotixChat() {
+            const messages = (onlineState.chatMessages || []).slice(-40);
+            gotixChatHistory.replaceChildren();
+            for (const msg of messages) {
+                if (!msg || typeof msg.text !== 'string') continue;
+                const line = document.createElement('div');
+                line.className = 'gotix-chat-message' + (msg.sender === config.username ? ' mine' : '');
+                const who = document.createElement('strong');
+                who.textContent = msg.sender === config.username ? 'You' : (msg.sender || 'Opponent');
+                const body = document.createElement('span');
+                body.textContent = msg.text;
+                line.append(who, body);
+                gotixChatHistory.appendChild(line);
+            }
+            gotixChatHistory.scrollTop = gotixChatHistory.scrollHeight;
+            const badge = document.getElementById('gotix-chat-unread');
+            badge.textContent = String(gotixChatUnread);
+            badge.classList.toggle('hidden', gotixChatUnread === 0);
+        }
+        gotixChatToggle.addEventListener('click', () => {
+            gotixChatOpen = !gotixChatOpen;
+            gotixChatPanel.classList.toggle('hidden', !gotixChatOpen);
+            gotixChatToggle.setAttribute('aria-expanded', String(gotixChatOpen));
+            document.getElementById('inline-chat-bar').classList.toggle('hidden', !gotixChatOpen);
+            document.getElementById('inline-chat-bar').classList.toggle('flex', gotixChatOpen);
+            if (gotixChatOpen) gotixChatUnread = 0;
+            refreshGotixChat();
+        });
+        document.querySelectorAll('[data-gotix-quick]').forEach(button => {
+            button.addEventListener('click', () => {
+                document.getElementById('input-online-chat').value = button.dataset.gotixQuick;
+                sendOnlineChatMessage();
+            });
+        });
+
         // Inline Fast Online Chat Event
         async function sendOnlineChatMessage() {
             const input = document.getElementById('input-online-chat');
@@ -1357,6 +1552,8 @@ let CANVAS = null;
             const newMsgs = [...(onlineState.chatMessages || []), msgObj].slice(-40);
             try {
                 await window.gutikaFB.setDoc(onlineState.roomRef, { chatMessages: newMsgs }, { merge: true });
+                onlineState.chatMessages = newMsgs;
+                refreshGotixChat();
             } catch(e) { console.error(e); }
         }
 
@@ -1365,10 +1562,7 @@ let CANVAS = null;
             if (e.key === 'Enter') sendOnlineChatMessage();
         });
 
-        document.getElementById('btn-change-mode').addEventListener('click', () => {
-            audio.playSelect();
-            startMenuModal.classList.remove('hidden');
-        });
+
 
         document.querySelectorAll('.btn-diff-choice').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -1556,7 +1750,9 @@ let CANVAS = null;
                 p2Count: gameState.p2Count, 
                 gameOver: gameState.gameOver, 
                 moveLogs: gameState.moveLogs.slice(0,80), 
-                elapsedSeconds: gameState.elapsedSeconds, 
+                elapsedSeconds: gameState.elapsedSeconds,
+                turnDeadline: onlineState.turnDeadline,
+                timeoutCounts: onlineState.timeoutCounts,
                 chatMessages: onlineState.chatMessages || [],
                 updatedAt: Date.now() 
             }; 
@@ -1576,6 +1772,20 @@ let CANVAS = null;
 
         function applyOnlineSnapshot(data) {
           if (!data || !data.board) return;
+          const previousDeadline = onlineState.turnDeadline;
+          const previousTurn = gameState.turn;
+          onlineState.turnDeadline = Number(data.turnDeadline || 0) || null;
+          onlineState.timeoutCounts = {P1:Number(data.timeoutCounts?.P1 || 0), P2:Number(data.timeoutCounts?.P2 || 0)};
+          onlineState.moveTimer = onlineState.turnDeadline ? Math.max(0,Math.ceil((onlineState.turnDeadline-Date.now())/1000)) : 120;
+          if (previousDeadline !== onlineState.turnDeadline || previousTurn !== data.turn) onlineState.lastTickSecond = null;
+          // Remote capture SFX: detect loss of one of my pieces on an incoming snapshot.
+          // Do not replay a locally executed capture or the initial room state.
+          const priorMyPieces = onlineState.role === 'P1' ? gameState.p1Count : gameState.p2Count;
+          const incomingMyPieces = onlineState.role === 'P1' ? data.p1Count : data.p2Count;
+          const remoteCapture = onlineState.startedLocally && !gameState.gameOver &&
+              Number.isFinite(priorMyPieces) && Number.isFinite(incomingMyPieces) &&
+              incomingMyPieces < priorMyPieces;
+          if (remoteCapture) audio.playCapture(false);
           gameState.board = [...data.board]; 
           gameState.turn = data.turn; 
           gameState.p1Count = data.p1Count; 
@@ -1592,11 +1802,13 @@ let CANVAS = null;
                       const msg = data.chatMessages[i];
                       if (msg && msg.sender !== config.username) {
                           showChatToastNotification(msg.sender, msg.text);
+                          if (!gotixChatOpen) gotixChatUnread++;
                       }
                   }
                   onlineState.lastSeenChatIndex = newCount;
               }
               onlineState.chatMessages = data.chatMessages;
+              refreshGotixChat();
           }
 
           if (data.turn !== onlineState.role) {
@@ -1606,7 +1818,8 @@ let CANVAS = null;
           }
           
           updateMoveLogUI(); 
-          updateUI(); 
+          updateUI();
+          if (onlineState.startedLocally) notifyTurnIfNeeded(); 
           render();
           
           if (gameState.gameOver) stopTimer();
@@ -1680,7 +1893,7 @@ let CANVAS = null;
                         if (!snap.exists()) throw new Error('gone'); 
                         const curData = snap.data(); 
                         if (curData.status !== 'waiting' || curData.players?.P2) throw new Error('taken'); 
-                        tx.update(candidateRef, { 'players.P2': { uid: window.gutikaUser.uid, name: config.username }, status: 'playing', started: true }); 
+                        tx.update(candidateRef, { 'players.P2': { uid: window.gutikaUser.uid, name: config.username }, status: 'playing', started: true, turnDeadline: Date.now()+TURN_LIMIT_MS, timeoutCounts:{P1:0,P2:0} }); 
                         code = candidate.id; 
                         ref = candidateRef; 
                     }); 
@@ -1732,7 +1945,7 @@ let CANVAS = null;
                     throw new Error('You cannot join your own created room!');
                 }
                 if (d.status !== 'waiting' || d.players?.P2) throw new Error('Room is already full.'); 
-                tx.update(ref, { 'players.P2': { uid: window.gutikaUser.uid, name: config.username }, status: 'playing', started: true }); 
+                tx.update(ref, { 'players.P2': { uid: window.gutikaUser.uid, name: config.username }, status: 'playing', started: true, turnDeadline: Date.now()+TURN_LIMIT_MS, timeoutCounts:{P1:0,P2:0} }); 
             });
             onlineState.role = 'P2'; 
             onlineState.roomCode = code; 
@@ -1826,6 +2039,21 @@ let CANVAS = null;
         document.getElementById('btn-cancel-online').addEventListener('click', closeOnlineToHome);
         document.getElementById('btn-close-online').addEventListener('click', closeOnlineToHome);
 
+        const moreButton = document.getElementById('btn-game-more');
+        const moreMenu = document.getElementById('gotix-more-options');
+        if (moreButton && moreMenu) {
+            moreButton.addEventListener('click', () => {
+                const opening = moreMenu.classList.contains('hidden');
+                moreMenu.classList.toggle('hidden', !opening);
+                moreButton.setAttribute('aria-expanded', String(opening));
+            });
+            moreMenu.addEventListener('click', (event) => {
+                if (event.target.closest('button')) {
+                    moreMenu.classList.add('hidden');
+                    moreButton.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
         document.getElementById('btn-settings').addEventListener('click', () => { audio.playSelect(); settingsModal.classList.remove('hidden'); });
         document.getElementById('btn-close-settings').addEventListener('click', () => settingsModal.classList.add('hidden'));
 
@@ -1842,6 +2070,7 @@ let CANVAS = null;
 
         document.getElementById('btn-sound').addEventListener('click', () => {
             config.soundEnabled = !config.soundEnabled;
+            localStorage.setItem('gotix_sound_enabled', String(config.soundEnabled));
             const btn = document.getElementById('btn-sound');
             btn.innerHTML = config.soundEnabled ? `<i class="fa-solid fa-volume-high text-xs"></i>` : `<i class="fa-solid fa-volume-xmark text-xs"></i>`;
         });
@@ -1962,3 +2191,28 @@ let CANVAS = null;
                 }
             });
         };
+
+        // Menu-only soundtrack: existing screen navigation remains untouched.
+        document.addEventListener('pointerdown', () => audio.unlock(), { once: true, capture: true });
+        document.addEventListener('keydown', () => audio.unlock(), { once: true, capture: true });
+        document.addEventListener('visibilitychange', () => audio.updateMusic());
+        const gotixMenu = document.getElementById('modal-start-menu');
+        if (gotixMenu) new MutationObserver(() => audio.updateMusic()).observe(gotixMenu, { attributes: true, attributeFilter: ['class'] });
+        const gotixMusicSlider = document.getElementById('gotix-music-volume');
+        const gotixSfxSlider = document.getElementById('gotix-sfx-volume');
+        if (gotixMusicSlider) {
+            gotixMusicSlider.value = Math.round(config.musicVolume * 100);
+            gotixMusicSlider.addEventListener('input', e => {
+                config.musicVolume = Number(e.target.value) / 100;
+                localStorage.setItem('gotix_music_volume', String(config.musicVolume));
+                audio.updateMusic();
+            });
+        }
+        if (gotixSfxSlider) {
+            gotixSfxSlider.value = Math.round(config.sfxVolume * 100);
+            gotixSfxSlider.addEventListener('input', e => {
+                config.sfxVolume = Number(e.target.value) / 100;
+                localStorage.setItem('gotix_sfx_volume', String(config.sfxVolume));
+            });
+        }
+        audio.updateMusic();
