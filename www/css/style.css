@@ -1,0 +1,85 @@
+body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        .font-yatra { font-family: 'Yatra One', cursive; }
+        .font-teko { font-family: 'Teko', sans-serif; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.25s ease-out forwards;
+        }
+
+        /* Responsive board: preserve intrinsic canvas coordinates and hit testing */
+        .board-container {
+            position: relative;
+            width: min(100%, 500px, calc((100dvh - 210px) / 1.1));
+            max-width: 500px;
+            max-height: none;
+            aspect-ratio: 1 / 1.1;
+            margin: 0 auto;
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.12));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            touch-action: none;
+            cursor: pointer;
+            border-radius: 1.25rem;
+        }
+        @media (max-height: 560px) {
+            .board-container { width: min(100%, 500px); }
+        }
+
+        .active-press:active {
+            transform: scale(0.95);
+        }
+        @keyframes floatText {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-35px) scale(1.4); }
+        }
+        .floating-capture-text {
+            position: absolute;
+            pointer-events: none;
+            font-family: 'Teko', sans-serif;
+            font-weight: 700;
+            color: #ef4444;
+            text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 0 12px rgba(239,68,68,0.8);
+            animation: floatText 0.9s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+            z-index: 40;
+        }
+
+        /* Toast Notifications Styling */
+        @keyframes toastSlide {
+            0% { opacity: 0; transform: translateY(-20px) scale(0.9); }
+            15% { opacity: 1; transform: translateY(0) scale(1); }
+            85% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-15px) scale(0.95); }
+        }
+        .chat-toast {
+            animation: toastSlide 3.8s ease-in-out forwards;
+        }
+
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(217, 119, 6, 0.5);
+            border-radius: 4px;
+        }
